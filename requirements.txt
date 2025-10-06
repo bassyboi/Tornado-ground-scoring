@@ -1,0 +1,15 @@
+pystac-client==0.7.6
+stackstac==0.5.1
+xarray==2024.3.0
+rioxarray==0.15.5
+rasterio==1.3.10
+numpy==1.26.4
+pandas==2.2.2
+geopandas==0.14.4
+shapely==2.0.4
+pyproj==3.6.1
+scikit-image==0.24.0
+scikit-learn==1.4.2
+tqdm==4.66.4
+click==8.1.7
+pyyaml==6.0.1
