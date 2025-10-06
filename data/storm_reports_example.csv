@@ -1,0 +1,4 @@
+event_time_utc,hazard,latitude,longitude,details
+2023-04-19T22:30:00Z,Tornado,35.223,-97.445,EF2 tornado near Norman, OK
+2023-04-19T23:45:00Z,Hail,35.310,-97.210,Large hail reports south of Oklahoma City
+2023-04-20T01:05:00Z,Tornado,35.430,-97.150,Brief touchdown east of Moore, OK

@@ -1,0 +1,22 @@
+{
+  "jobDefinitionName": "tornado-ground-scoring",
+  "type": "container",
+  "platformCapabilities": ["FARGATE"],
+  "containerProperties": {
+    "image": "${ECR_REPOSITORY_URI}:latest",
+    "command": [],
+    "executionRoleArn": "arn:aws:iam::123456789012:role/BatchExecutionRole",
+    "jobRoleArn": "arn:aws:iam::123456789012:role/BatchJobRole",
+    "resourceRequirements": [
+      { "type": "VCPU", "value": "4" },
+      { "type": "MEMORY", "value": "16000" }
+    ],
+    "environment": [
+      { "name": "CONFIG_S3_URI", "value": "s3://my-bucket/configs/tornado-config.yaml" },
+      { "name": "EXPORT_S3_PREFIX", "value": "s3://my-bucket/outputs/tornado" }
+    ]
+  },
+  "retryStrategy": {
+    "attempts": 1
+  }
+}
