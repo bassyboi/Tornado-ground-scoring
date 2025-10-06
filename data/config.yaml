@@ -22,3 +22,16 @@ web:
   description: "Auto-built from Sentinel pre/post windows."
   center: [-27.0, 151.5]
   zoom: 9
+storm_filter:
+  enabled: true
+  catalog: data/storm_reports_example.csv
+  datetime_column: event_time_utc
+  hazard_column: hazard
+  latitude_column: latitude
+  longitude_column: longitude
+  hazards:
+    - Tornado
+  distance_km: 50
+  days_before: 0
+  days_after: 1
+  export_geojson: docs/data/storm_events.geojson
