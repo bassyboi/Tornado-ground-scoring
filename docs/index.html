@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Ground Scour Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha512-sA+q5ms5F2yZefRg2fzGEylh4G6dkprdFMn/hTyBC0bY4Z1cdq9VHtV6nRvWmvMRGsiE232zfoFM5x3Dm7G8eA==" crossorigin="" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Ground Scour Map</h1>
+    <p>Auto-built from Sentinel pre/post windows.</p>
+  </header>
+  <div id="map"></div>
+  <div id="legend"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha512-o9N1j7kG6r0s+P0LlwM651op01qmPvvrLpzjAU6Rz6U02zszbmWzxubUANkqG0x74pJ1gzhS+M4LMEnM08JdKw==" crossorigin=""></script>
+  <script>
+    const map = L.map('map').setView([-27.0, 151.5], 9);
+    L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const colors = {
+      0: '#f7fbff',
+      1: '#c6dbef',
+      2: '#9ecae1',
+      3: '#6baed6',
+      4: '#3182bd',
+      5: '#08519c'
+    };
+
+    function style(feature) {
+      const gss = feature.properties?.gss ?? 0;
+      return {
+        color: '#333',
+        weight: 1,
+        fillColor: colors[gss] || '#cccccc',
+        fillOpacity: 0.6
+      };
+    }
+
+    fetch('data/changes.geojson')
+      .then(resp => resp.json())
+      .then(data => {
+        const layer = L.geoJSON(data, { style }).addTo(map);
+        if (layer.getLayers().length) {
+          map.fitBounds(layer.getBounds());
+        }
+        buildLegend();
+      })
+      .catch(err => {
+        console.error('Failed to load GeoJSON', err);
+        buildLegend();
+      });
+
+    function buildLegend() {
+      const legend = document.getElementById('legend');
+      legend.innerHTML = '<h3>Ground-Scour Score</h3>';
+      for (let i = 0; i <= 5; i++) {
+        const row = document.createElement('div');
+        row.className = 'legend-row';
+        row.innerHTML = `<span class="swatch" style="background:${colors[i]}"></span> GSS ${i}`;
+        legend.appendChild(row);
+      }
+    }
+  </script>
+</body>
+</html>

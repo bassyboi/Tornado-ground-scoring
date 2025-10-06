@@ -1,0 +1,23 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Example AOI"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-97.0, 35.5],
+            [-96.8, 35.5],
+            [-96.8, 35.7],
+            [-97.0, 35.7],
+            [-97.0, 35.5]
+          ]
+        ]
+      }
+    }
+  ]
+}

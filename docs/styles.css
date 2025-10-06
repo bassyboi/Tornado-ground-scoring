@@ -1,0 +1,46 @@
+body {
+  margin: 0;
+  font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+  background: #f5f7fa;
+  color: #1f2d3d;
+}
+
+header {
+  padding: 1.5rem 2rem 1rem;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+#map {
+  height: calc(100vh - 200px);
+  min-height: 400px;
+}
+
+#legend {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.legend-row:last-child {
+  margin-bottom: 0;
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #444;
+  display: inline-block;
+}
