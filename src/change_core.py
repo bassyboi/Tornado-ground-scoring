@@ -43,11 +43,26 @@ def normalize_local(arr: xr.DataArray, win: int = 201) -> xr.DataArray:
 
     if win % 2 == 0:
         win += 1
-    rolling = arr.rolling(y=win, x=win, center=True, min_periods=1)
-    mean = rolling.mean()
-    std = rolling.std()
+    arr = arr.where(np.isfinite(arr))
+    arr_filled = arr.fillna(0)
+
+    rolling_kwargs = dict(y=win, x=win, center=True, min_periods=1)
+
+    valid = xr.where(arr.notnull(), 1, 0)
+    count = valid.rolling(**rolling_kwargs).sum()
+    count = count.where(count > 0, 1)
+
+    total = arr_filled.rolling(**rolling_kwargs).sum()
+    mean = total / count
+
+    squared = (arr_filled ** 2).rolling(**rolling_kwargs).sum()
+    variance = (squared / count) - mean ** 2
+    variance = variance.where(variance > 0, 0)
+    std = np.sqrt(variance)
     std = std.where(std > 1e-6, 1e-6)
-    norm = (arr - mean) / std
+
+    norm = (arr_filled - mean) / std
+    norm = norm.where(arr.notnull(), 0)
     return norm.fillna(0)
 
 
