@@ -23,10 +23,56 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha512-o9N1j7kG6r0s+P0LlwM651op01qmPvvrLpzjAU6Rz6U02zszbmWzxubUANkqG0x74pJ1gzhS+M4LMEnM08JdKw==" crossorigin=""></script>
   <script>
     const map = L.map('map').setView([-27.0, 151.5], 9);
-    L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {
+
+    const australianBasemap = L.tileLayer(
+      'https://services.ga.gov.au/gis/rest/services/NationalMap_Colour_Topography/MapServer/tile/{z}/{y}/{x}',
+      {
+        maxZoom: 20,
+        attribution: 'Topographic Base Map © Geoscience Australia'
+      }
+    );
+
+    const osmBasemap = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
+    });
+
+    australianBasemap.addTo(map);
+
+    australianBasemap.on('tileerror', () => {
+      map.removeLayer(australianBasemap);
+      if (!map.hasLayer(osmBasemap)) {
+        osmBasemap.addTo(map);
+      }
+    });
+
+    L.control.layers(
+      {
+        'Australian Topography': australianBasemap,
+        'OpenStreetMap': osmBasemap
+      },
+      null,
+      { position: 'topright' }
+    ).addTo(map);
+
+    const mapContainer = document.getElementById('map');
+
+    function showEmptyState(message) {
+      let banner = document.querySelector('#map .map-empty');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.className = 'map-empty';
+        mapContainer.appendChild(banner);
+      }
+      banner.textContent = message;
+    }
+
+    function clearEmptyState() {
+      const banner = document.querySelector('#map .map-empty');
+      if (banner) {
+        banner.remove();
+      }
+    }
 
     const colors = {
       0: '#f7fbff',
@@ -48,16 +94,27 @@
     }
 
     fetch('data/changes.geojson')
-      .then(resp => resp.json())
-      .then(data => {
-        const layer = L.geoJSON(data, { style }).addTo(map);
-        if (layer.getLayers().length) {
-          map.fitBounds(layer.getBounds());
+      .then(resp => {
+        if (!resp.ok) {
+          throw new Error(`Failed to fetch changes.geojson: ${resp.status}`);
         }
+        return resp.json();
+      })
+      .then(data => {
+        const features = Array.isArray(data.features) ? data.features : [];
+        if (!features.length) {
+          showEmptyState('No change polygons were published for the latest run.');
+          buildLegend();
+          return;
+        }
+        clearEmptyState();
+        const layer = L.geoJSON(data, { style }).addTo(map);
+        map.fitBounds(layer.getBounds());
         buildLegend();
       })
       .catch(err => {
         console.error('Failed to load GeoJSON', err);
+        showEmptyState('Change layer unavailable. Latest run did not produce any map features.');
         buildLegend();
       });
 
