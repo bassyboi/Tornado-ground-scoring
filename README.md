@@ -17,7 +17,7 @@ Detect tornado-driven ground change from Sentinel imagery, score the severity, a
    source .venv/bin/activate
    pip install -r requirements.txt
    ```
-2. **Configure the analysis** by editing `data/config.yaml`. Update the AOI path, date windows, weights, threshold, and web map metadata as needed.
+2. **Configure the analysis** by editing `data/config.yaml`. Update the AOI path, date windows, target projection, weights, threshold, and web map metadata as needed.
 3. **Run the pipeline**:
    ```bash
    python -m src.run_pipeline --config data/config.yaml
@@ -38,6 +38,7 @@ See `data/config.yaml` for the default options:
 - **Elongation filter**: Enable to keep polygons aligned with an expected tornado-track bearing and an elongation ratio ≥ 2.0. Optional keys `elongation_tolerance_deg` and `elongation_min_ratio` further tune the filter.
 - **GSS breaks**: Either `"quantile"` (default quintiles) or an explicit list of five monotonically increasing thresholds.
 - **Web map**: Customize the title, description, and initial map viewpoint.
+- **Stack projection**: Set `stack_epsg` to the EPSG code you want mosaics resampled into. The sample configuration uses EPSG:3577 (Australian Albers) so Sentinel imagery is reprojected to metric units across the continent.
 - **Storm filter**: Optionally gate the entire run on a catalog of historical storm reports. Provide a CSV file with at least
   the event timestamp, hazard type, and coordinates. When enabled, the pipeline loads the catalog, keeps events that intersect
   the AOI (with an optional distance buffer) within the specified post-event window, exports them to GeoJSON, and aborts early

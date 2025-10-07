@@ -10,10 +10,13 @@ import xarray as xr
 from pystac_client import Client
 import rioxarray  # noqa: F401  # required for rio accessor
 import stackstac
+from pyproj import CRS
 
 from .aoi_utils import aoi_bounds_wgs84, raster_grid_from_aoi
 
 LOGGER = logging.getLogger(__name__)
+
+DEFAULT_STACK_EPSG = 3857
 
 
 def _open_catalog(url: str) -> Client | None:
@@ -84,15 +87,17 @@ def mosaic_s2(
     bands: Sequence[str],
     aoi_gdf: gpd.GeoDataFrame,
     resolution: float = 10.0,
+    target_epsg: int | None = None,
 ) -> xr.DataArray:
     """Create a median Sentinel-2 mosaic for the requested bands."""
 
     if not items:
         LOGGER.warning("No Sentinel-2 items found. Using placeholder mosaic.")
-        return _placeholder_mosaic(bands, aoi_gdf, resolution)
+        return _placeholder_mosaic(bands, aoi_gdf, resolution, target_epsg)
 
     try:
-        stack = stackstac.stack(items, assets=bands, resolution=resolution)
+        epsg = target_epsg or DEFAULT_STACK_EPSG
+        stack = stackstac.stack(items, assets=bands, resolution=resolution, epsg=epsg)
         data = stack.median(dim="time", skipna=True)
         if "band" not in data.dims:
             data = data.expand_dims({"band": list(bands)})
@@ -103,7 +108,7 @@ def mosaic_s2(
         return data
     except Exception as exc:  # pragma: no cover - defensive
         LOGGER.warning("Failed to mosaic Sentinel-2 stack: %s", exc)
-        return _placeholder_mosaic(bands, aoi_gdf, resolution)
+        return _placeholder_mosaic(bands, aoi_gdf, resolution, target_epsg)
 
 
 def mosaic_s1(
@@ -111,15 +116,17 @@ def mosaic_s1(
     bands: Sequence[str],
     aoi_gdf: gpd.GeoDataFrame,
     resolution: float = 10.0,
+    target_epsg: int | None = None,
 ) -> xr.DataArray:
     """Create a median Sentinel-1 RTC mosaic."""
 
     if not items:
         LOGGER.warning("No Sentinel-1 items found. Using placeholder mosaic.")
-        return _placeholder_mosaic(bands, aoi_gdf, resolution)
+        return _placeholder_mosaic(bands, aoi_gdf, resolution, target_epsg)
 
     try:
-        stack = stackstac.stack(items, assets=bands, resolution=resolution)
+        epsg = target_epsg or DEFAULT_STACK_EPSG
+        stack = stackstac.stack(items, assets=bands, resolution=resolution, epsg=epsg)
         data = stack.median(dim="time", skipna=True)
         if "band" not in data.dims:
             data = data.expand_dims({"band": list(bands)})
@@ -130,17 +137,22 @@ def mosaic_s1(
         return data
     except Exception as exc:  # pragma: no cover - defensive
         LOGGER.warning("Failed to mosaic Sentinel-1 stack: %s", exc)
-        return _placeholder_mosaic(bands, aoi_gdf, resolution)
+        return _placeholder_mosaic(bands, aoi_gdf, resolution, target_epsg)
 
 
 def _placeholder_mosaic(
     bands: Sequence[str],
     aoi_gdf: gpd.GeoDataFrame,
     resolution: float,
+    target_epsg: int | None,
 ) -> xr.DataArray:
     """Build a zero-filled mosaic so downstream steps can proceed."""
 
-    grid = raster_grid_from_aoi(aoi_gdf, resolution=resolution)
+    if target_epsg:
+        projected_crs = CRS.from_epsg(target_epsg)
+    else:
+        projected_crs = CRS.from_epsg(DEFAULT_STACK_EPSG)
+    grid = raster_grid_from_aoi(aoi_gdf, resolution=resolution, projected_crs=projected_crs)
     data = np.zeros((len(bands), grid.height, grid.width), dtype=np.float32)
     x_coords = grid.transform.c + (np.arange(grid.width) + 0.5) * grid.transform.a
     y_coords = grid.transform.f + (np.arange(grid.height) + 0.5) * grid.transform.e

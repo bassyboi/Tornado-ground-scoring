@@ -38,6 +38,9 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
     aoi = load_aoi(cfg["aoi_geojson"])
     catalogs = cfg.get("stac_catalogs", [])
 
+    stack_epsg = cfg.get("stack_epsg")
+    stack_epsg_int = int(stack_epsg) if stack_epsg is not None else None
+
     post_from = _parse_date(cfg["post_from"])
     post_to = _parse_date(cfg["post_to"])
 
@@ -81,8 +84,8 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
     pre_items = fetch_stack.search_sentinel2(aoi, cfg["pre_from"], cfg["pre_to"], catalogs)
     post_items = fetch_stack.search_sentinel2(aoi, cfg["post_from"], cfg["post_to"], catalogs)
 
-    pre_mosaic = fetch_stack.mosaic_s2(pre_items, S2_BANDS, aoi)
-    post_mosaic = fetch_stack.mosaic_s2(post_items, S2_BANDS, aoi)
+    pre_mosaic = fetch_stack.mosaic_s2(pre_items, S2_BANDS, aoi, target_epsg=stack_epsg_int)
+    post_mosaic = fetch_stack.mosaic_s2(post_items, S2_BANDS, aoi, target_epsg=stack_epsg_int)
 
     score = change_core.change_score_s2(pre_mosaic, post_mosaic, cfg.get("weights", {}))
     score = score.rio.write_crs(pre_mosaic.rio.crs)
@@ -91,8 +94,8 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
     if cfg.get("use_sentinel1_grd"):
         s1_pre_items = fetch_stack.search_sentinel1(aoi, cfg["pre_from"], cfg["pre_to"], catalogs)
         s1_post_items = fetch_stack.search_sentinel1(aoi, cfg["post_from"], cfg["post_to"], catalogs)
-        s1_pre = fetch_stack.mosaic_s1(s1_pre_items, S1_BANDS, aoi)
-        s1_post = fetch_stack.mosaic_s1(s1_post_items, S1_BANDS, aoi)
+        s1_pre = fetch_stack.mosaic_s1(s1_pre_items, S1_BANDS, aoi, target_epsg=stack_epsg_int)
+        s1_post = fetch_stack.mosaic_s1(s1_post_items, S1_BANDS, aoi, target_epsg=stack_epsg_int)
         score = change_core.add_s1_logratio(score, s1_pre, s1_post, cfg.get("weights", {}).get("s1_logratio", 0.1))
         score = score.rio.write_crs(pre_mosaic.rio.crs)
         score = score.rio.write_transform(pre_mosaic.rio.transform())
