@@ -301,6 +301,18 @@ def _placeholder_mosaic(
 def _nanmedian_percentile(stack: xr.DataArray) -> xr.DataArray:
     """Return the per-pixel median without emitting RuntimeWarnings."""
 
+    # ``xarray.DataArray.quantile`` expects the core dimension (``time`` for the
+    # stackstac output) to be represented by a single Dask chunk.  In practice
+    # stackstac frequently produces multiple chunks along the time axis, which
+    # then triggers ``apply_ufunc`` to raise and we fall back to placeholder
+    # mosaics.  Re-chunk the array defensively so the quantile reduction always
+    # operates on a single chunk irrespective of the upstream chunk structure.
+    time_dim = "time"
+    if stack.chunksizes and time_dim in stack.chunksizes:
+        time_chunks = stack.chunksizes[time_dim]
+        if len(time_chunks) > 1:
+            stack = stack.chunk({time_dim: -1})
+
     median = stack.quantile(0.5, dim="time", skipna=True)
     if "quantile" in median.dims:
         median = median.isel(quantile=0, drop=True)
