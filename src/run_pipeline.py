@@ -332,10 +332,14 @@ def _attach_polygon_stats(polygons: gpd.GeoDataFrame, score: xr.DataArray) -> gp
     for geom in polygons.geometry.to_crs(crs):
         mask = features.geometry_mask([mapping(geom)], out_shape=data.shape, transform=transform, invert=True)
         masked = np.where(mask, data, np.nan)
-        mean_raw = np.nanmean(masked)
-        max_raw = np.nanmax(masked)
-        mean_val = float(mean_raw) if np.isfinite(mean_raw) else 0.0
-        max_val = float(max_raw) if np.isfinite(max_raw) else 0.0
+        finite = np.isfinite(masked)
+        if finite.any():
+            valid = masked[finite]
+            mean_val = float(valid.mean())
+            max_val = float(valid.max())
+        else:
+            mean_val = 0.0
+            max_val = 0.0
         means.append(mean_val)
         maxs.append(max_val)
     polygons = polygons.copy()
