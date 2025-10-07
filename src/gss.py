@@ -71,11 +71,20 @@ def apply_elongation_filter(
     return gdf.loc[mask]
 
 
-def score_to_gss(values: Sequence[float], breaks: Sequence[float] | str = "quantile") -> np.ndarray:
-    """Map change scores to Ground-Scour Scores (0-5)."""
+def _as_float_array(values: Sequence[float] | np.ndarray) -> np.ndarray:
+    """Return the input values as a 1-D float array."""
 
-    arr = np.asarray(list(values), dtype=float)
-    gss = np.zeros(arr.shape, dtype=int)
+    if isinstance(values, np.ndarray):
+        return values.astype(float)
+    return np.asarray(list(values), dtype=float)
+
+
+def resolve_gss_thresholds(
+    values: Sequence[float], breaks: Sequence[float] | str = "quantile"
+) -> np.ndarray:
+    """Resolve the five Ground-Scour Score thresholds for the provided scores."""
+
+    arr = _as_float_array(values)
 
     if isinstance(breaks, str):
         if breaks != "quantile":
@@ -90,9 +99,17 @@ def score_to_gss(values: Sequence[float], breaks: Sequence[float] | str = "quant
         thresholds = np.asarray(list(breaks), dtype=float)
         if thresholds.size != 5:
             raise ValueError("Break list must contain exactly five thresholds")
-    thresholds = np.sort(thresholds)
+    return np.sort(thresholds)
+
+
+def score_to_gss(values: Sequence[float], breaks: Sequence[float] | str = "quantile") -> np.ndarray:
+    """Map change scores to Ground-Scour Scores (0-5)."""
+
+    arr = _as_float_array(values)
+    thresholds = resolve_gss_thresholds(arr, breaks=breaks)
+    gss_values = np.zeros(arr.shape, dtype=int)
 
     for idx, thresh in enumerate(thresholds):
-        gss[arr > thresh] = idx + 1
-    gss[arr > thresholds[-1]] = 5
-    return gss
+        gss_values[arr > thresh] = idx + 1
+    gss_values[arr > thresholds[-1]] = 5
+    return gss_values
