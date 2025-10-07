@@ -19,12 +19,27 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_STACK_EPSG = 3857
 
+# Track catalog URLs that previously failed to open so we can avoid hammering
+# the same endpoint repeatedly when the environment blocks outbound network
+# access (a common situation in CI). Without this guard the pipeline would log
+# the same proxy error for every expansion attempt and for both pre/post
+# searches, cluttering the output while still producing placeholder mosaics.
+_FAILED_CATALOGS: set[str] = set()
+
 
 def _open_catalog(url: str) -> Client | None:
+    if url in _FAILED_CATALOGS:
+        return None
     try:
         return Client.open(url)
     except Exception as exc:  # pragma: no cover - defensive
-        LOGGER.warning("Failed to open STAC catalog %s: %s", url, exc)
+        if url not in _FAILED_CATALOGS:
+            LOGGER.warning(
+                "Failed to open STAC catalog %s: %s; suppressing further attempts",
+                url,
+                exc,
+            )
+        _FAILED_CATALOGS.add(url)
         return None
 
 
