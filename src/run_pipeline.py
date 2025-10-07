@@ -85,6 +85,12 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
             return
         LOGGER.info("Storm filter retained %s events", len(events))
 
+    LOGGER.info(
+        "Searching Sentinel-2 %s imagery between %s and %s",
+        "pre-event",
+        cfg["pre_from"],
+        cfg["pre_to"],
+    )
     pre_items, pre_from_str, pre_to_str = fetch_stack.search_sentinel2_with_fallback(
         aoi,
         cfg["pre_from"],
@@ -93,6 +99,12 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
         max_expansion_days=expand_days,
         step_days=expand_step,
         window_label="pre-event",
+    )
+    LOGGER.info(
+        "Searching Sentinel-2 %s imagery between %s and %s",
+        "post-event",
+        cfg["post_from"],
+        cfg["post_to"],
     )
     post_items, post_from_str, post_to_str = fetch_stack.search_sentinel2_with_fallback(
         aoi,
@@ -103,15 +115,17 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
         step_days=expand_step,
         window_label="post-event",
     )
-
+    LOGGER.info("Building Sentinel-2 mosaics")
     pre_mosaic = fetch_stack.mosaic_s2(pre_items, S2_BANDS, aoi, target_epsg=stack_epsg_int)
     post_mosaic = fetch_stack.mosaic_s2(post_items, S2_BANDS, aoi, target_epsg=stack_epsg_int)
 
+    LOGGER.info("Computing change score")
     score = change_core.change_score_s2(pre_mosaic, post_mosaic, cfg.get("weights", {}))
     score = score.rio.write_crs(pre_mosaic.rio.crs)
     score = score.rio.write_transform(pre_mosaic.rio.transform())
 
     if cfg.get("use_sentinel1_grd"):
+        LOGGER.info("Searching Sentinel-1 GRD collections")
         s1_pre_items, _, _ = fetch_stack.search_sentinel1_with_fallback(
             aoi,
             pre_from_str,
@@ -138,6 +152,7 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
 
     score_path = Path("artifacts/change_score.tif")
     _ensure_directory(score_path.parent)
+    LOGGER.info("Writing change score raster to %s", score_path)
     _save_dataarray(score.astype(np.float32), score_path)
 
     threshold_cfg = cfg.get("threshold", "otsu")
@@ -156,8 +171,10 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
     mask = mask.rio.write_transform(score.rio.transform())
 
     mask_path = Path("artifacts/change_mask.tif")
+    LOGGER.info("Writing change mask raster to %s", mask_path)
     _save_dataarray(mask.astype(np.uint8), mask_path)
 
+    LOGGER.info("Extracting change polygons")
     polygons = change_core.polygons_from_mask(mask, cfg.get("min_blob_area_m2", 500.0))
     polygons = polygons.reset_index(drop=True)
 
@@ -190,10 +207,12 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
 
     geojson_path = Path("docs/data/changes.geojson")
     _ensure_directory(geojson_path.parent)
+    LOGGER.info("Writing change polygons to %s", geojson_path)
     _write_geojson(polygons, geojson_path)
     _write_kml(polygons, Path("docs/data/changes.kml"))
 
     scoring_metadata_path = Path("docs/data/scoring.json")
+    LOGGER.info("Writing scoring metadata to %s", scoring_metadata_path)
     _write_scoring_metadata(
         scoring_metadata_path,
         cfg=cfg,
