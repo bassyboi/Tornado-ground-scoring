@@ -11,9 +11,17 @@ header {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
+main {
+  padding: 0 2rem 2.5rem;
+  margin-top: 1.5rem;
+}
+
 #map {
-  height: calc(100vh - 200px);
-  min-height: 400px;
+  height: calc(100vh - 260px);
+  min-height: 420px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
 }
 
 #legend {
@@ -24,6 +32,62 @@ header {
   padding: 1rem;
   border-radius: 8px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.panel {
+  margin-top: 2rem;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 1.5rem 2rem;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+}
+
+.panel h2 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+.panel section {
+  margin-bottom: 1.25rem;
+}
+
+.panel section:last-child {
+  margin-bottom: 0;
+}
+
+.panel .timestamp {
+  color: #5c6c80;
+  font-size: 0.9rem;
+}
+
+.panel .bullets {
+  padding-left: 1.2rem;
+}
+
+.panel .note {
+  color: #51606f;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}
+
+.panel .counts {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.panel .counts th,
+.panel .counts td {
+  text-align: left;
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid #e3e9f0;
+}
+
+.panel .counts caption {
+  text-align: left;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
 }
 
 .legend-row {

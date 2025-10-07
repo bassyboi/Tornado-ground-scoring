@@ -120,12 +120,12 @@ def add_s1_logratio(
     return combined
 
 
-def threshold_score(
+def resolve_threshold_value(
     score: xr.DataArray,
     method: str = "otsu",
     numeric: float | None = None,
-) -> xr.DataArray:
-    """Threshold the change score to produce a binary mask."""
+) -> float:
+    """Resolve the numeric threshold for the provided score array."""
 
     if method == "numeric" and numeric is None:
         raise ValueError("Numeric threshold requested but no value provided")
@@ -133,7 +133,7 @@ def threshold_score(
     valid = score.values[np.isfinite(score.values)]
     if valid.size == 0:
         LOGGER.warning("No valid pixels found for thresholding")
-        return xr.zeros_like(score, dtype=bool)
+        return float("nan")
 
     if method == "otsu":
         try:
@@ -144,7 +144,19 @@ def threshold_score(
         thresh = float(numeric)
     else:
         raise ValueError(f"Unknown threshold method: {method}")
+    return thresh
 
+
+def threshold_score(
+    score: xr.DataArray,
+    method: str = "otsu",
+    numeric: float | None = None,
+) -> xr.DataArray:
+    """Threshold the change score to produce a binary mask."""
+
+    thresh = resolve_threshold_value(score, method=method, numeric=numeric)
+    if not np.isfinite(thresh):
+        return xr.zeros_like(score, dtype=bool)
     mask = score > thresh
     return mask.fillna(False)
 

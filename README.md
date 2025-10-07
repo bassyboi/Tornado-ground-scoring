@@ -80,6 +80,10 @@ The Leaflet app is designed to live under `docs/`. A GitHub Actions workflow (`.
 
 If you prefer to publish the map manually, run the pipeline locally, commit the updated `docs/` folder, and serve it with GitHub Pages or any static hosting provider.
 
+### Scoring metadata export
+
+Every pipeline execution now writes a machine-readable scoring summary to `docs/data/scoring.json`. The file captures the component weights, the resolved change-score threshold, the five Ground-Scour Score breakpoints, and polygon statistics (counts, area, mean-score range). The GitHub Actions workflow publishes this file alongside the Leaflet app, so the repository always documents the scoring system used for the latest run. If you customise the configuration, rerun the pipeline to regenerate the scoring metadata before committing.
+
 ## Tuning tips
 - Tighten the pre/post acquisition windows around the event to avoid seasonal noise.
 - Increase the SAR weight and enable `use_sentinel1_grd` for debris detection over bare ground or low vegetation.

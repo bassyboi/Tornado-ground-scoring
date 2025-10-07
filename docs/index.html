@@ -12,8 +12,14 @@
     <h1>Ground Scour Map</h1>
     <p>Auto-built from Sentinel pre/post windows.</p>
   </header>
-  <div id="map"></div>
-  <div id="legend"></div>
+  <main>
+    <div id="map"></div>
+    <div id="legend"></div>
+    <section id="scoring-doc" class="panel">
+      <h2>Scoring Overview</h2>
+      <p class="loading">Loading scoring metadata…</p>
+    </section>
+  </main>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha512-o9N1j7kG6r0s+P0LlwM651op01qmPvvrLpzjAU6Rz6U02zszbmWzxubUANkqG0x74pJ1gzhS+M4LMEnM08JdKw==" crossorigin=""></script>
   <script>
     const map = L.map('map').setView([-27.0, 151.5], 9);
@@ -65,6 +71,96 @@
         legend.appendChild(row);
       }
     }
+
+    function renderScoring(metadata) {
+      const container = document.getElementById('scoring-doc');
+      if (!metadata || !metadata.scoring) {
+        container.innerHTML = '<h2>Scoring Overview</h2><p>Scoring metadata not available.</p>';
+        return;
+      }
+
+      const generated = metadata.generated_at
+        ? new Date(metadata.generated_at).toLocaleString()
+        : 'Unknown';
+
+      const components = metadata.scoring.components || {};
+      const componentItems = Object.entries(components)
+        .map(([key, info]) => {
+          const label = info.label || key;
+          const weight = typeof info.weight === 'number' ? info.weight.toFixed(2) : 'n/a';
+          const status = info.active === false ? ' (inactive)' : '';
+          return `<li><strong>${label}</strong> — weight ${weight}${status}</li>`;
+        })
+        .join('');
+
+      const sentinelComponent = components['s1_logratio'] || {};
+      const sentinel1Status = sentinelComponent.active
+        ? 'Sentinel-1 weighting is enabled.'
+        : 'Sentinel-1 weighting is disabled.';
+
+      const thresholds = metadata.gss?.resolved_thresholds || [];
+      const thresholdList = thresholds
+        .map((value, idx) => `<li>Break ${idx + 1}: ${value.toFixed(3)}</li>`)
+        .join('');
+
+      const gssCounts = metadata.gss?.counts || {};
+      const countRows = Object.entries(gssCounts)
+        .map(([level, count]) => `<tr><th>GSS ${level}</th><td>${count}</td></tr>`)
+        .join('');
+
+      const meanMin = metadata.polygons?.mean_score_min;
+      const meanMax = metadata.polygons?.mean_score_max;
+      const meanRangeText =
+        meanMin != null && meanMax != null
+          ? `${Number(meanMin).toFixed(3)} – ${Number(meanMax).toFixed(3)}`
+          : 'n/a';
+
+      const totalArea = metadata.polygons?.total_area_m2;
+      const totalAreaText =
+        typeof totalArea === 'number'
+          ? `${(totalArea / 1e6).toFixed(2)} km²`
+          : 'n/a';
+
+      container.innerHTML = `
+        <h2>Scoring Overview</h2>
+        <p class="timestamp">Generated ${generated}</p>
+        <section>
+          <h3>Components</h3>
+          <ul class="bullets">${componentItems || '<li>No components reported.</li>'}</ul>
+          <p class="note">${sentinel1Status}</p>
+        </section>
+        <section>
+          <h3>Thresholding</h3>
+          <p>Method: <strong>${metadata.threshold?.method || 'n/a'}</strong>${
+            metadata.threshold?.value != null
+              ? ` (cutoff ${Number(metadata.threshold.value).toFixed(3)})`
+              : ''
+          }</p>
+        </section>
+        <section>
+          <h3>Ground-Scour Score breaks</h3>
+          <ul class="bullets">${thresholdList || '<li>No thresholds reported.</li>'}</ul>
+          <table class="counts">
+            <caption>Polygon counts by GSS</caption>
+            <tbody>${countRows}</tbody>
+          </table>
+        </section>
+        <section>
+          <h3>Polygon summary</h3>
+          <p>Total polygons: <strong>${metadata.polygons?.count ?? 0}</strong></p>
+          <p>Total mapped area: <strong>${totalAreaText}</strong></p>
+          <p>Mean score range: <strong>${meanRangeText}</strong></p>
+        </section>
+      `;
+    }
+
+    fetch('data/scoring.json')
+      .then(resp => resp.json())
+      .then(renderScoring)
+      .catch(() => {
+        const container = document.getElementById('scoring-doc');
+        container.innerHTML = '<h2>Scoring Overview</h2><p>Scoring metadata not available.</p>';
+      });
   </script>
 </body>
 </html>

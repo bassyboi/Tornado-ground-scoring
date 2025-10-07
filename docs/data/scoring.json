@@ -1,0 +1,45 @@
+{
+  "generated_at": null,
+  "scoring": {
+    "components": {
+      "d_ndvi": {
+        "label": "Vegetation loss (ΔNDVI)",
+        "weight": 0.6,
+        "active": true
+      },
+      "d_brightness": {
+        "label": "Brightness increase",
+        "weight": 0.3,
+        "active": true
+      },
+      "s1_logratio": {
+        "label": "Sentinel-1 GRD log-ratio magnitude",
+        "weight": 0.1,
+        "active": false
+      }
+    },
+    "sentinel1_enabled": false
+  },
+  "threshold": {
+    "method": null,
+    "value": null
+  },
+  "gss": {
+    "breaks_config": "quantile",
+    "resolved_thresholds": [],
+    "counts": {
+      "0": 0,
+      "1": 0,
+      "2": 0,
+      "3": 0,
+      "4": 0,
+      "5": 0
+    }
+  },
+  "polygons": {
+    "count": 0,
+    "mean_score_min": null,
+    "mean_score_max": null,
+    "total_area_m2": null
+  }
+}

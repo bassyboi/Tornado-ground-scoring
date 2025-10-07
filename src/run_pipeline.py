@@ -142,9 +142,16 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
 
     threshold_cfg = cfg.get("threshold", "otsu")
     if isinstance(threshold_cfg, str):
-        mask = change_core.threshold_score(score, method=threshold_cfg)
+        threshold_method = threshold_cfg
+        threshold_value = change_core.resolve_threshold_value(score, method=threshold_method)
+        mask = change_core.threshold_score(score, method=threshold_method)
     else:
-        mask = change_core.threshold_score(score, method="numeric", numeric=float(threshold_cfg))
+        threshold_method = "numeric"
+        numeric_value = float(threshold_cfg)
+        threshold_value = change_core.resolve_threshold_value(
+            score, method=threshold_method, numeric=numeric_value
+        )
+        mask = change_core.threshold_score(score, method=threshold_method, numeric=numeric_value)
     mask = mask.rio.write_crs(score.rio.crs)
     mask = mask.rio.write_transform(score.rio.transform())
 
@@ -153,6 +160,9 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
 
     polygons = change_core.polygons_from_mask(mask, cfg.get("min_blob_area_m2", 500.0))
     polygons = polygons.reset_index(drop=True)
+
+    gss_cfg = cfg.get("gss", {})
+    gss_breaks = gss_cfg.get("breaks", "quantile")
 
     if not polygons.empty:
         polygons = _attach_polygon_stats(polygons, score)
@@ -168,7 +178,7 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
                 min_ratio=min_ratio,
             )
             polygons = polygons.reset_index(drop=True)
-        gss_breaks = cfg.get("gss", {}).get("breaks", "quantile")
+        gss_thresholds = gss.resolve_gss_thresholds(polygons["mean_score"].values, breaks=gss_breaks)
         polygons["gss"] = gss.score_to_gss(polygons["mean_score"].values, breaks=gss_breaks)
     else:
         polygons["mean_score"] = []
@@ -176,11 +186,23 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
         polygons["gss"] = []
         polygons["bearing_deg"] = []
         polygons["elongation_ratio"] = []
+        gss_thresholds = gss.resolve_gss_thresholds([], breaks=gss_breaks)
 
     geojson_path = Path("docs/data/changes.geojson")
     _ensure_directory(geojson_path.parent)
     _write_geojson(polygons, geojson_path)
     _write_kml(polygons, Path("docs/data/changes.kml"))
+
+    scoring_metadata_path = Path("docs/data/scoring.json")
+    _write_scoring_metadata(
+        scoring_metadata_path,
+        cfg=cfg,
+        gss_breaks=gss_breaks,
+        gss_thresholds=gss_thresholds,
+        polygons=polygons,
+        threshold_method=threshold_method,
+        threshold_value=threshold_value,
+    )
 
     if export_csv and not polygons.empty:
         _ensure_directory(Path(export_csv).parent or Path("."))
@@ -197,6 +219,95 @@ def _load_config(path: Path) -> Dict[str, Any]:
     if not isinstance(cfg, dict):
         raise ValueError("Config must be a mapping")
     return cfg
+
+
+def _write_scoring_metadata(
+    path: Path,
+    *,
+    cfg: Dict[str, Any],
+    gss_breaks: Any,
+    gss_thresholds: np.ndarray,
+    polygons: gpd.GeoDataFrame,
+    threshold_method: str,
+    threshold_value: float,
+) -> None:
+    """Persist a machine-readable description of the scoring configuration."""
+
+    weights_cfg = cfg.get("weights", {})
+    sentinel1_enabled = bool(cfg.get("use_sentinel1_grd"))
+    components: Dict[str, Dict[str, Any]] = {
+        "d_ndvi": {
+            "label": "Vegetation loss (ΔNDVI)",
+            "weight": float(weights_cfg.get("d_ndvi", 0.6)),
+            "active": True,
+        },
+        "d_brightness": {
+            "label": "Brightness increase",
+            "weight": float(weights_cfg.get("d_brightness", 0.3)),
+            "active": True,
+        },
+    }
+    components["s1_logratio"] = {
+        "label": "Sentinel-1 GRD log-ratio magnitude",
+        "weight": float(weights_cfg.get("s1_logratio", 0.1)),
+        "active": sentinel1_enabled,
+    }
+
+    polygon_count = int(len(polygons))
+    mean_score_min = None
+    mean_score_max = None
+    if polygon_count > 0 and "mean_score" in polygons:
+        mean_scores = polygons["mean_score"].astype(float).to_numpy()
+        finite_scores = mean_scores[np.isfinite(mean_scores)]
+        if finite_scores.size:
+            mean_score_min = float(finite_scores.min())
+            mean_score_max = float(finite_scores.max())
+
+    gss_counts: Dict[str, int] = {str(level): 0 for level in range(6)}
+    if polygon_count > 0 and "gss" in polygons:
+        for level, count in polygons["gss"].value_counts().items():
+            try:
+                gss_counts[str(int(level))] = int(count)
+            except (TypeError, ValueError):
+                continue
+
+    total_area = None
+    if polygon_count > 0 and "area_m2" in polygons:
+        total_area_value = float(polygons["area_m2"].sum())
+        if np.isfinite(total_area_value):
+            total_area = total_area_value
+
+    if isinstance(gss_breaks, str):
+        breaks_repr: Any = gss_breaks
+    else:
+        breaks_repr = [float(v) for v in gss_breaks]
+
+    metadata = {
+        "generated_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "scoring": {
+            "components": components,
+            "sentinel1_enabled": sentinel1_enabled,
+        },
+        "threshold": {
+            "method": threshold_method,
+            "value": float(threshold_value) if np.isfinite(threshold_value) else None,
+        },
+        "gss": {
+            "breaks_config": breaks_repr,
+            "resolved_thresholds": [float(v) for v in gss_thresholds.tolist()],
+            "counts": gss_counts,
+        },
+        "polygons": {
+            "count": polygon_count,
+            "mean_score_min": mean_score_min,
+            "mean_score_max": mean_score_max,
+            "total_area_m2": total_area,
+        },
+    }
+
+    _ensure_directory(path.parent)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
 
 
 def _ensure_directory(path: Path) -> None:
