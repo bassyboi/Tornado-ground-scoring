@@ -193,9 +193,32 @@ def polygons_from_mask(mask: xr.DataArray, min_area_m2: float) -> gpd.GeoDataFra
 
 
 def _normalize_01(arr: xr.DataArray) -> xr.DataArray:
-    minimum = arr.min(skipna=True)
-    maximum = arr.max(skipna=True)
-    if np.isnan(minimum) or np.isnan(maximum) or float(maximum - minimum) < 1e-6:
+    """Normalize an array to the ``[0, 1]`` range in a NaN-safe manner."""
+
+    finite = arr.where(np.isfinite(arr))
+    valid = finite.count()
+    if valid.size == 0:
         return xr.zeros_like(arr)
-    normed = (arr - minimum) / (maximum - minimum)
+    valid_max = valid.max().compute()
+    if float(valid_max) == 0:
+        return xr.zeros_like(arr)
+
+    # Replace missing values before the reduction so NumPy never receives an
+    # all-NaN slice (which would otherwise trigger RuntimeWarning in dask task
+    # execution).
+    min_source = finite.fillna(np.inf)
+    max_source = finite.fillna(-np.inf)
+
+    minimum = min_source.min(skipna=False)
+    maximum = max_source.max(skipna=False)
+    spread = maximum - minimum
+
+    minimum_val = float(minimum.compute())
+    maximum_val = float(maximum.compute())
+    spread_val = float(spread.compute())
+
+    if not np.isfinite(minimum_val) or not np.isfinite(maximum_val) or spread_val <= 1e-6:
+        return xr.zeros_like(arr)
+
+    normed = (finite - minimum_val) / spread_val
     return normed.clip(0, 1).fillna(0)
