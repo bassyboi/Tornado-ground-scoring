@@ -105,7 +105,7 @@ def mosaic_s2(
     resolution: float = 10.0,
     target_epsg: int | None = None,
 ) -> xr.DataArray:
-    """Create a median Sentinel-2 mosaic for the requested bands."""
+    """Create a Sentinel-2 mosaic using the per-pixel median (50th percentile)."""
 
     if not items:
         LOGGER.warning("No Sentinel-2 items found. Using placeholder mosaic.")
@@ -114,7 +114,7 @@ def mosaic_s2(
     try:
         epsg = target_epsg or DEFAULT_STACK_EPSG
         stack = stackstac.stack(items, assets=bands, resolution=resolution, epsg=epsg)
-        data = stack.median(dim="time", skipna=True)
+        data = _nanmedian_percentile(stack)
         if "band" not in data.dims:
             data = data.expand_dims({"band": list(bands)})
         data = data.transpose("band", "y", "x")
@@ -134,7 +134,7 @@ def mosaic_s1(
     resolution: float = 10.0,
     target_epsg: int | None = None,
 ) -> xr.DataArray:
-    """Create a median Sentinel-1 RTC mosaic."""
+    """Create a Sentinel-1 RTC mosaic using the per-pixel median."""
 
     if not items:
         LOGGER.warning("No Sentinel-1 items found. Using placeholder mosaic.")
@@ -143,7 +143,7 @@ def mosaic_s1(
     try:
         epsg = target_epsg or DEFAULT_STACK_EPSG
         stack = stackstac.stack(items, assets=bands, resolution=resolution, epsg=epsg)
-        data = stack.median(dim="time", skipna=True)
+        data = _nanmedian_percentile(stack)
         if "band" not in data.dims:
             data = data.expand_dims({"band": list(bands)})
         data = data.transpose("band", "y", "x")
@@ -296,3 +296,12 @@ def _placeholder_mosaic(
     arr = arr.rio.write_transform(grid.transform)
     arr = arr.rio.write_nodata(np.nan)
     return arr
+
+
+def _nanmedian_percentile(stack: xr.DataArray) -> xr.DataArray:
+    """Return the per-pixel median without emitting RuntimeWarnings."""
+
+    median = stack.quantile(0.5, dim="time", skipna=True)
+    if "quantile" in median.dims:
+        median = median.isel(quantile=0, drop=True)
+    return median.astype(stack.dtype)
