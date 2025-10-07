@@ -157,7 +157,9 @@ def export_events(events: gpd.GeoDataFrame, path: Path) -> None:
     if events.crs is None:
         events = events.set_crs(4326)
     events = _stringify_event_fields(events)
-    events.to_crs(4326).to_file(path, driver="GeoJSON")
+    events_wgs84 = events.to_crs(4326)
+    geojson = events_wgs84.to_json()
+    path.write_text(geojson, encoding="utf-8")
     LOGGER.info("Wrote %s storm events to %s", len(events), path)
 
 
