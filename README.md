@@ -1,11 +1,12 @@
 # Tornado Ground-Scour Mapper
 
-Detect tornado-driven ground change from Sentinel imagery, score the severity, and publish an interactive web map — all from a single Python pipeline.
+Detect and map tornado-driven ground scouring from Sentinel imagery, then (optionally) score the severity and publish an interactive web map — all from a single Python pipeline.
 
 ## Features
 - Fetch Sentinel-2 (and optional Sentinel-1 RTC) imagery through public STAC APIs.
 - Build median pre/post mosaics and compute a composite change score using vegetation loss, brightness increase, and SAR backscatter change.
-- Threshold the change map, filter polygons by elongation, and assign a Ground-Scour Score (GSS 0–5).
+- Threshold the change map, filter polygons by elongation, and extract candidate ground-scouring polygons.
+- (Optional) Assign each polygon a Ground-Scour Score (GSS 0–5) to summarise relative severity.
 - Export GeoTIFF rasters, GeoJSON polygons, and a ready-to-host Leaflet map under `docs/` for GitHub Pages.
 - Emit a Google Earth-ready KML file alongside the GeoJSON export for quick sharing.
 - Continuous integration workflow that runs the pipeline and publishes a GitHub Pages site on every push.
