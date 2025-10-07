@@ -23,6 +23,8 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha512-o9N1j7kG6r0s+P0LlwM651op01qmPvvrLpzjAU6Rz6U02zszbmWzxubUANkqG0x74pJ1gzhS+M4LMEnM08JdKw==" crossorigin=""></script>
   <script>
     const map = L.map('map').setView([-27.0, 151.5], 9);
+    let combinedBounds = null;
+    let stormEventCount = 0;
 
     const australianBasemap = L.tileLayer(
       'https://services.ga.gov.au/gis/rest/services/NationalMap_Colour_Topography/MapServer/tile/{z}/{y}/{x}',
@@ -109,7 +111,11 @@
         }
         clearEmptyState();
         const layer = L.geoJSON(data, { style }).addTo(map);
-        map.fitBounds(layer.getBounds());
+        const bounds = layer.getBounds();
+        if (bounds.isValid()) {
+          combinedBounds = L.latLngBounds(bounds);
+          map.fitBounds(combinedBounds.pad(0.05));
+        }
         buildLegend();
       })
       .catch(err => {
@@ -127,7 +133,85 @@
         row.innerHTML = `<span class="swatch" style="background:${colors[i]}"></span> GSS ${i}`;
         legend.appendChild(row);
       }
+      if (stormEventCount > 0) {
+        const divider = document.createElement('hr');
+        divider.className = 'legend-divider';
+        legend.appendChild(divider);
+
+        const stormRow = document.createElement('div');
+        stormRow.className = 'legend-row legend-row--storms';
+        stormRow.innerHTML = `
+          <span class="storm-marker"></span>
+          Storm reports (${stormEventCount})
+        `;
+        legend.appendChild(stormRow);
+      }
     }
+
+    function fitToBounds(newBounds) {
+      if (!newBounds || !newBounds.isValid()) return;
+      if (combinedBounds) {
+        combinedBounds.extend(newBounds);
+      } else {
+        combinedBounds = L.latLngBounds(newBounds);
+      }
+      map.fitBounds(combinedBounds.pad(0.1));
+    }
+
+    fetch('data/storm_events.geojson')
+      .then(resp => {
+        if (!resp.ok) {
+          throw new Error(`Failed to fetch storm_events.geojson: ${resp.status}`);
+        }
+        return resp.json();
+      })
+      .then(data => {
+        const features = Array.isArray(data.features) ? data.features : [];
+        if (!features.length) {
+          return;
+        }
+
+        stormEventCount = features.length;
+        const layer = L.geoJSON(data, {
+          pointToLayer: (_feature, latlng) =>
+            L.circleMarker(latlng, {
+              radius: 6,
+              fillColor: '#f94144',
+              color: '#a4161a',
+              weight: 1,
+              opacity: 1,
+              fillOpacity: 0.85
+            }),
+          onEachFeature: (feature, layer) => {
+            const props = feature.properties || {};
+            const title = props.hazard || 'Storm report';
+            const details = props.details ? `<p>${props.details}</p>` : '';
+            const timestamp = props.event_time_utc
+              ? new Date(props.event_time_utc).toLocaleString()
+              : null;
+            layer.bindPopup(`
+              <strong>${title}</strong>
+              ${timestamp ? `<p>${timestamp}</p>` : ''}
+              ${details}
+            `);
+          }
+        }).addTo(map);
+
+        const bounds = layer.getBounds();
+        fitToBounds(bounds);
+        const banner = document.querySelector('#map .map-empty');
+        if (banner && !banner.dataset.stormContext) {
+          banner.dataset.stormContext = 'true';
+          banner.insertAdjacentHTML(
+            'beforeend',
+            '<p class="map-empty-note">Recent storm reports are highlighted in red.</p>'
+          );
+        }
+        buildLegend();
+      })
+      .catch(err => {
+        console.warn('Storm events layer unavailable', err);
+      });
 
     function renderScoring(metadata) {
       const container = document.getElementById('scoring-doc');
