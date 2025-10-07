@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Sequence
+from datetime import datetime, timedelta
+from typing import Callable, List, Sequence, Tuple
 
 import geopandas as gpd
 import numpy as np
@@ -48,7 +49,7 @@ def search_sentinel2(
             query={"eo:cloud_cover": {"lt": 90}},
         )
         try:
-            items.extend(list(search.get_items()))
+            items.extend(list(search.items()))
         except Exception as exc:  # pragma: no cover - defensive
             LOGGER.warning("Sentinel-2 search failed for %s: %s", url, exc)
     LOGGER.info("Found %d Sentinel-2 items", len(items))
@@ -75,7 +76,7 @@ def search_sentinel1(
             datetime=f"{date_from}/{date_to}",
         )
         try:
-            items.extend(list(search.get_items()))
+            items.extend(list(search.items()))
         except Exception as exc:  # pragma: no cover - defensive
             LOGGER.warning("Sentinel-1 search failed for %s: %s", url, exc)
     LOGGER.info("Found %d Sentinel-1 items", len(items))
@@ -138,6 +139,120 @@ def mosaic_s1(
     except Exception as exc:  # pragma: no cover - defensive
         LOGGER.warning("Failed to mosaic Sentinel-1 stack: %s", exc)
         return _placeholder_mosaic(bands, aoi_gdf, resolution, target_epsg)
+
+
+def search_sentinel2_with_fallback(
+    aoi_gdf: gpd.GeoDataFrame,
+    date_from: str,
+    date_to: str,
+    catalogs: Sequence[str],
+    *,
+    max_expansion_days: int = 0,
+    step_days: int = 1,
+    window_label: str = "",
+) -> Tuple[List, str, str]:
+    """Search Sentinel-2 scenes and optionally expand the date window."""
+
+    items = search_sentinel2(aoi_gdf, date_from, date_to, catalogs)
+    if items or max_expansion_days <= 0:
+        return items, date_from, date_to
+
+    return _expand_date_window(
+        search_fn=lambda start, end: search_sentinel2(aoi_gdf, start, end, catalogs),
+        sensor_label="Sentinel-2",
+        window_label=window_label,
+        date_from=date_from,
+        date_to=date_to,
+        max_expansion_days=max_expansion_days,
+        step_days=step_days,
+    )
+
+
+def search_sentinel1_with_fallback(
+    aoi_gdf: gpd.GeoDataFrame,
+    date_from: str,
+    date_to: str,
+    catalogs: Sequence[str],
+    *,
+    max_expansion_days: int = 0,
+    step_days: int = 1,
+    window_label: str = "",
+) -> Tuple[List, str, str]:
+    """Search Sentinel-1 RTC scenes and optionally expand the date window."""
+
+    items = search_sentinel1(aoi_gdf, date_from, date_to, catalogs)
+    if items or max_expansion_days <= 0:
+        return items, date_from, date_to
+
+    return _expand_date_window(
+        search_fn=lambda start, end: search_sentinel1(aoi_gdf, start, end, catalogs),
+        sensor_label="Sentinel-1",
+        window_label=window_label,
+        date_from=date_from,
+        date_to=date_to,
+        max_expansion_days=max_expansion_days,
+        step_days=step_days,
+    )
+
+
+def _expand_date_window(
+    *,
+    search_fn: Callable[[str, str], Sequence],
+    sensor_label: str,
+    window_label: str,
+    date_from: str,
+    date_to: str,
+    max_expansion_days: int,
+    step_days: int,
+) -> Tuple[List, str, str]:
+    """Expand the search window until imagery is found or limits are hit."""
+
+    try:
+        start_date = datetime.fromisoformat(date_from).date()
+        end_date = datetime.fromisoformat(date_to).date()
+    except ValueError as exc:  # pragma: no cover - defensive
+        LOGGER.warning(
+            "Unable to parse %s window dates %s–%s: %s", sensor_label, date_from, date_to, exc
+        )
+        return [], date_from, date_to
+
+    step_days = max(1, step_days)
+    max_expansion_days = max(0, max_expansion_days)
+
+    for pad_days in range(step_days, max_expansion_days + step_days, step_days):
+        expanded_from = (start_date - timedelta(days=pad_days)).isoformat()
+        expanded_to = (end_date + timedelta(days=pad_days)).isoformat()
+        try:
+            items = list(search_fn(expanded_from, expanded_to))
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.warning(
+                "Expanded %s search to %s–%s but it failed: %s",
+                sensor_label,
+                expanded_from,
+                expanded_to,
+                exc,
+            )
+            continue
+        if items:
+            label = f"{sensor_label} {window_label}".strip()
+            LOGGER.info(
+                "Expanded %s window to %s–%s (±%s days) to find %d items",
+                label or sensor_label,
+                expanded_from,
+                expanded_to,
+                pad_days,
+                len(items),
+            )
+            return list(items), expanded_from, expanded_to
+
+    LOGGER.warning(
+        "No %s imagery found within ±%s days of requested window %s–%s",
+        sensor_label,
+        max_expansion_days,
+        date_from,
+        date_to,
+    )
+    return [], date_from, date_to
 
 
 def _placeholder_mosaic(

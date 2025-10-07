@@ -156,5 +156,42 @@ def export_events(events: gpd.GeoDataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if events.crs is None:
         events = events.set_crs(4326)
+    events = _stringify_event_fields(events)
     events.to_crs(4326).to_file(path, driver="GeoJSON")
     LOGGER.info("Wrote %s storm events to %s", len(events), path)
+
+
+def _stringify_event_fields(events: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Convert datetime/date columns to ISO strings for GeoJSON export."""
+
+    events = events.copy()
+    if "event_time_utc" in events.columns:
+        times = pd.to_datetime(events["event_time_utc"], utc=True, errors="coerce")
+        events["event_time_utc"] = times.dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if "event_date" in events.columns:
+        events["event_date"] = events["event_date"].apply(_date_to_iso)
+    return events
+
+
+def _date_to_iso(value: object) -> str | None:
+    """Return an ISO 8601 date string or ``None`` when value is missing."""
+
+    if pd.isna(value):
+        return None
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, pd.Timestamp):
+        if value.tzinfo:
+            return value.tz_convert("UTC").date().isoformat()
+        return value.date().isoformat()
+    if isinstance(value, str):
+        try:
+            parsed = pd.to_datetime(value, errors="coerce")
+        except Exception:  # pragma: no cover - defensive
+            return value
+        if pd.isna(parsed):
+            return value
+        if parsed.tzinfo:
+            parsed = parsed.tz_convert("UTC")
+        return parsed.date().isoformat()
+    return str(value)
