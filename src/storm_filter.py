@@ -1,6 +1,7 @@
 """Utilities to filter storm-day events before running the change pipeline."""
 from __future__ import annotations
 
+import csv
 import json
 import logging
 from dataclasses import dataclass
@@ -30,7 +31,7 @@ def load_catalog(path: Path, schema: CatalogSchema) -> gpd.GeoDataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Storm catalog not found: {path}")
 
-    df = pd.read_csv(path)
+    df = _read_catalog(path)
     for column in [
         schema.datetime_column,
         schema.latitude_column,
@@ -56,10 +57,40 @@ def load_catalog(path: Path, schema: CatalogSchema) -> gpd.GeoDataFrame:
         df["hazard"] = "Unknown"
 
     geometry = gpd.points_from_xy(
-        df[schema.longitude_column], df[schema.latitude_column], crs="EPSG:4326"
+        pd.to_numeric(df[schema.longitude_column], errors="coerce"),
+        pd.to_numeric(df[schema.latitude_column], errors="coerce"),
+        crs="EPSG:4326",
     )
     gdf = gpd.GeoDataFrame(df, geometry=geometry)
     return gdf
+
+
+def _read_catalog(path: Path) -> pd.DataFrame:
+    """Return a DataFrame from ``path`` with resilient CSV parsing."""
+
+    with path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        try:
+            header = next(reader)
+        except StopIteration as exc:  # pragma: no cover - empty file guard
+            raise ValueError("Storm catalog is empty") from exc
+
+        rows = []
+        header_len = len(header)
+        for row in reader:
+            if not row:
+                continue
+            if len(row) > header_len:
+                trimmed = row[: header_len - 1]
+                trimmed.append(
+                    ",".join(cell for cell in row[header_len - 1 :] if cell)
+                )
+                row = trimmed
+            elif len(row) < header_len:
+                row = row + [""] * (header_len - len(row))
+            rows.append(row)
+
+    return pd.DataFrame(rows, columns=header)
 
 
 def relevant_events(
