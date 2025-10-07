@@ -547,7 +547,7 @@ def _write_leaflet_page(path: Path, web_cfg: Dict[str, Any]) -> None:
     fetch('data/changes.geojson')
       .then(resp => {{
         if (!resp.ok) {{
-          throw new Error(`Failed to fetch changes.geojson: ${resp.status}`);
+          throw new Error(`Failed to fetch changes.geojson: ${{resp.status}}`);
         }}
         return resp.json();
       }})
