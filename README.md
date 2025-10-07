@@ -37,6 +37,7 @@ See `data/config.yaml` for the default options:
 - **Threshold**: Use `"otsu"` for automatic selection or set a numeric cutoff between 0 and 1.
 - **Elongation filter**: Enable to keep polygons aligned with an expected tornado-track bearing and an elongation ratio ≥ 2.0. Optional keys `elongation_tolerance_deg` and `elongation_min_ratio` further tune the filter.
 - **GSS breaks**: Either `"quantile"` (default quintiles) or an explicit list of five monotonically increasing thresholds.
+- **Search fallback**: The optional `search` block lets you expand the pre/post date windows when no Sentinel imagery is found. Set `auto_expand_max_days` to the maximum ± days of padding to try, and `auto_expand_step_days` to the increment between attempts.
 - **Web map**: Customize the title, description, and initial map viewpoint.
 - **Stack projection**: Set `stack_epsg` to the EPSG code you want mosaics resampled into. The sample configuration uses EPSG:3577 (Australian Albers) so Sentinel imagery is reprojected to metric units across the continent.
 - **Storm filter**: Optionally gate the entire run on a catalog of historical storm reports. Provide a CSV file with at least
@@ -71,7 +72,7 @@ message indicating that no storm day was detected.
 
 ## GitHub Pages workflow
 
-The Leaflet app is designed to live under `docs/`. A GitHub Actions workflow (`.github/workflows/build.yaml`) runs the pipeline on every push to `main`, packages the `docs/` folder, and deploys it to GitHub Pages. To get automated map updates online:
+The Leaflet app is designed to live under `docs/`. A GitHub Actions workflow (`.github/workflows/build.yaml`) runs the pipeline on every push to `main`, packages the `docs/` folder, and deploys it to GitHub Pages. A daily scheduled run (06:00 UTC) also executes the pipeline so the storm filter can automatically publish new tracks whenever qualifying Australian storm reports appear in the catalog. To get automated map updates online:
 
 1. Open the repository settings → **Pages** and choose the "GitHub Actions" build option.
 2. Push your configuration changes to `main`. The workflow will fetch imagery, run the change-detection pipeline, and upload the rendered `docs/` directory.

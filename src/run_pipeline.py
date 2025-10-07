@@ -38,6 +38,10 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
     aoi = load_aoi(cfg["aoi_geojson"])
     catalogs = cfg.get("stac_catalogs", [])
 
+    search_cfg = cfg.get("search", {})
+    expand_days = int(search_cfg.get("auto_expand_max_days", 0) or 0)
+    expand_step = int(search_cfg.get("auto_expand_step_days", 2) or 1)
+
     stack_epsg = cfg.get("stack_epsg")
     stack_epsg_int = int(stack_epsg) if stack_epsg is not None else None
 
@@ -81,8 +85,24 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
             return
         LOGGER.info("Storm filter retained %s events", len(events))
 
-    pre_items = fetch_stack.search_sentinel2(aoi, cfg["pre_from"], cfg["pre_to"], catalogs)
-    post_items = fetch_stack.search_sentinel2(aoi, cfg["post_from"], cfg["post_to"], catalogs)
+    pre_items, pre_from_str, pre_to_str = fetch_stack.search_sentinel2_with_fallback(
+        aoi,
+        cfg["pre_from"],
+        cfg["pre_to"],
+        catalogs,
+        max_expansion_days=expand_days,
+        step_days=expand_step,
+        window_label="pre-event",
+    )
+    post_items, post_from_str, post_to_str = fetch_stack.search_sentinel2_with_fallback(
+        aoi,
+        cfg["post_from"],
+        cfg["post_to"],
+        catalogs,
+        max_expansion_days=expand_days,
+        step_days=expand_step,
+        window_label="post-event",
+    )
 
     pre_mosaic = fetch_stack.mosaic_s2(pre_items, S2_BANDS, aoi, target_epsg=stack_epsg_int)
     post_mosaic = fetch_stack.mosaic_s2(post_items, S2_BANDS, aoi, target_epsg=stack_epsg_int)
@@ -92,8 +112,24 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
     score = score.rio.write_transform(pre_mosaic.rio.transform())
 
     if cfg.get("use_sentinel1_grd"):
-        s1_pre_items = fetch_stack.search_sentinel1(aoi, cfg["pre_from"], cfg["pre_to"], catalogs)
-        s1_post_items = fetch_stack.search_sentinel1(aoi, cfg["post_from"], cfg["post_to"], catalogs)
+        s1_pre_items, _, _ = fetch_stack.search_sentinel1_with_fallback(
+            aoi,
+            pre_from_str,
+            pre_to_str,
+            catalogs,
+            max_expansion_days=expand_days,
+            step_days=expand_step,
+            window_label="pre-event",
+        )
+        s1_post_items, _, _ = fetch_stack.search_sentinel1_with_fallback(
+            aoi,
+            post_from_str,
+            post_to_str,
+            catalogs,
+            max_expansion_days=expand_days,
+            step_days=expand_step,
+            window_label="post-event",
+        )
         s1_pre = fetch_stack.mosaic_s1(s1_pre_items, S1_BANDS, aoi, target_epsg=stack_epsg_int)
         s1_post = fetch_stack.mosaic_s1(s1_post_items, S1_BANDS, aoi, target_epsg=stack_epsg_int)
         score = change_core.add_s1_logratio(score, s1_pre, s1_post, cfg.get("weights", {}).get("s1_logratio", 0.1))

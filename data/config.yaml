@@ -8,6 +8,9 @@ stac_catalogs:
   - "https://earth-search.aws.element84.com/v1"
 use_sentinel2: true
 use_sentinel1_grd: false
+search:
+  auto_expand_max_days: 10
+  auto_expand_step_days: 2
 weights:
   d_ndvi: 0.6
   d_brightness: 0.3

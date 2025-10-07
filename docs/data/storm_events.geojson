@@ -1,0 +1,9 @@
+{
+"type": "FeatureCollection",
+"name": "storm_events",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "event_time_utc": "2023-04-19T08:30:00Z", "hazard": "Tornado", "latitude": "-27.620", "longitude": "152.000", "details": "Landspout reported west of Brisbane, QLD", "event_date": "2023-04-19" }, "geometry": { "type": "Point", "coordinates": [ 152.0, -27.62 ] } },
+{ "type": "Feature", "properties": { "event_time_utc": "2023-04-19T10:05:00Z", "hazard": "Tornado", "latitude": "-27.480", "longitude": "152.050", "details": "Brief tornado near Fernvale, QLD", "event_date": "2023-04-19" }, "geometry": { "type": "Point", "coordinates": [ 152.05, -27.48 ] } }
+]
+}
