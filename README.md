@@ -24,6 +24,9 @@ Detect tornado-driven ground change from Sentinel imagery, score the severity, a
    ```
    The run will create GeoTIFFs in `artifacts/` and a `docs/data/changes.geojson` file consumed by the Leaflet app at `docs/index.html`.
    Add `--export-csv outputs.csv` to capture polygon statistics as a table.
+   > **Live data only:** The repository ships with empty placeholder GeoJSON/JSON files under `docs/data/`. Each pipeline
+   > execution overwrites them with the latest scraped storm reports, change polygons, and scoring metadata so the published map
+   > always reflects live inputs.
 4. **Serve the map locally** (optional):
    ```bash
    python -m http.server --directory docs 8000
