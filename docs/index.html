@@ -101,10 +101,12 @@
       attribution: '&copy; OpenStreetMap contributors'
     });
 
-    australianBasemap.addTo(map);
+    osmBasemap.addTo(map);
 
     australianBasemap.on('tileerror', () => {
-      map.removeLayer(australianBasemap);
+      if (map.hasLayer(australianBasemap)) {
+        map.removeLayer(australianBasemap);
+      }
       if (!map.hasLayer(osmBasemap)) {
         osmBasemap.addTo(map);
       }
@@ -112,8 +114,8 @@
 
     L.control.layers(
       {
-        'Australian Topography': australianBasemap,
-        'OpenStreetMap': osmBasemap
+        'OpenStreetMap': osmBasemap,
+        'Australian Topography': australianBasemap
       },
       null,
       { position: 'topright' }
