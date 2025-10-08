@@ -60,12 +60,12 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
         scrape_cfg = storm_cfg.get("scrape")
         if scrape_cfg:
             provider = (scrape_cfg.get("provider") or "iem_lsr").strip().lower()
-            if provider != "iem_lsr":
-                raise ValueError(
-                    f"Unsupported storm_filter.scrape.provider '{provider}' (expected 'iem_lsr')"
-                )
             hazard_overrides = scrape_cfg.get("hazards")
-            hazard_list = hazard_overrides if hazard_overrides is not None else storm_cfg.get("hazards")
+            hazard_list = (
+                hazard_overrides
+                if hazard_overrides is not None
+                else storm_cfg.get("hazards")
+            )
             if hazard_list:
                 hazard_list = [str(value) for value in hazard_list]
             lookback_days = int(scrape_cfg.get("lookback_days", 0) or 0)
@@ -74,54 +74,92 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
 
             scrape_start_date = post_from - timedelta(days=lookback_days)
             scrape_end_date = post_to + timedelta(days=lookahead_days)
-            start_dt = datetime.combine(scrape_start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            start_dt = datetime.combine(
+                scrape_start_date, datetime.min.time()
+            ).replace(tzinfo=timezone.utc)
             end_dt = datetime.combine(
                 scrape_end_date + timedelta(days=1), datetime.min.time()
             ).replace(tzinfo=timezone.utc)
             bounds = storm_reports.buffered_bounds(aoi, buffer_km=bbox_buffer_km)
-            try:
+
+            def _coerce_iterable(raw):
+                if raw is None:
+                    return None
+                if isinstance(raw, (list, tuple, set)):
+                    return [str(item) for item in raw]
+                return [str(raw)]
+
+            states = (
+                _coerce_iterable(scrape_cfg.get("states"))
+                if provider == "bom_warnings"
+                else None
+            )
+            phenomena = (
+                _coerce_iterable(scrape_cfg.get("phenomena"))
+                if provider == "bom_warnings"
+                else None
+            )
+
+            if provider == "iem_lsr":
                 catalog = storm_reports.fetch_iem_local_storm_reports(
                     start=start_dt,
                     end=end_dt,
                     bounds=bounds,
                     hazards=hazard_list,
                 )
-            except Exception:  # pragma: no cover - network dependency
-                LOGGER.exception(
-                    "Storm report scrape failed; falling back to local catalog if available"
+            elif provider == "bom_warnings":
+                catalog = storm_reports.fetch_bom_warnings(
+                    start=start_dt,
+                    end=end_dt,
+                    bounds=bounds,
+                    hazards=hazard_list,
+                    states=states,
+                    phenomena=phenomena,
                 )
-                catalog = None
             else:
-                LOGGER.info(
-                    "Scraped %s storm reports between %s and %s using %s",
-                    len(catalog),
-                    scrape_start_date,
-                    scrape_end_date,
-                    provider,
+                raise ValueError(
+                    "Unsupported storm_filter.scrape.provider "
+                    f"'{provider}' (expected 'iem_lsr' or 'bom_warnings')"
                 )
-                export_csv = scrape_cfg.get("export_csv")
-                if export_csv:
-                    storm_reports.write_catalog_csv(catalog, Path(export_csv))
-                metadata_path = scrape_cfg.get("metadata_path")
-                if metadata_path:
-                    metadata = {
-                        "provider": provider,
-                        "start": start_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "end": end_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "bounds": list(bounds),
-                        "hazards": list(hazard_list or []),
-                        "count": int(len(catalog)),
-                    }
-                    storm_reports.save_metadata(metadata, Path(metadata_path))
-                if catalog.empty:
-                    LOGGER.info(
-                        "Storm report scrape returned no events for the requested window"
+
+            LOGGER.info(
+                "Scraped %s storm reports between %s and %s using %s",
+                len(catalog),
+                scrape_start_date,
+                scrape_end_date,
+                provider,
+            )
+            export_csv = scrape_cfg.get("export_csv")
+            if export_csv:
+                storm_reports.write_catalog_csv(catalog, Path(export_csv))
+            metadata_path = scrape_cfg.get("metadata_path")
+            if metadata_path:
+                metadata = {
+                    "provider": provider,
+                    "start": start_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "end": end_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "bounds": list(bounds),
+                    "hazards": list(hazard_list or []),
+                    "count": int(len(catalog)),
+                }
+                if provider == "bom_warnings":
+                    metadata.update(
+                        {
+                            "states": list(states) if states else [],
+                            "phenomena": list(phenomena) if phenomena else [],
+                        }
                     )
+                storm_reports.save_metadata(metadata, Path(metadata_path))
+            if catalog.empty:
+                LOGGER.info(
+                    "Storm report scrape returned no events for the requested window"
+                )
         if catalog is None:
             catalog_path = storm_cfg.get("catalog")
             if not catalog_path:
                 raise KeyError(
-                    "storm_filter.catalog must be provided when scraping fails or is disabled"
+                    "storm_filter.scrape is enabled but no catalog was scraped. "
+                    "Provide a live scrape configuration or an explicit catalog fallback."
                 )
             catalog = storm_filter.load_catalog(Path(catalog_path), schema)
         backfill_dirs = storm_cfg.get("auto_backfill_directions")

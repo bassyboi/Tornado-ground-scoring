@@ -28,7 +28,6 @@ web:
   zoom: 9
 storm_filter:
   enabled: true
-  catalog: data/storm_reports_example.csv
   datetime_column: event_time_utc
   hazard_column: hazard
   latitude_column: latitude
@@ -45,7 +44,7 @@ storm_filter:
     - forward
   export_geojson: docs/data/storm_events.geojson
   scrape:
-    provider: iem_lsr
+    provider: bom_warnings
     lookback_days: 7
     lookahead_days: 1
     bbox_buffer_km: 25

@@ -55,7 +55,6 @@ The `storm_filter` block in `data/config.yaml` demonstrates the expected schema:
 ```yaml
 storm_filter:
   enabled: true
-  catalog: data/storm_reports_example.csv
   datetime_column: event_time_utc
   hazard_column: hazard
   latitude_column: latitude
@@ -69,11 +68,29 @@ storm_filter:
   auto_backfill_directions: [backward, forward]
   export_geojson: docs/data/storm_events.geojson
   scrape:
-    provider: iem_lsr
+    provider: bom_warnings
     lookback_days: 7
     lookahead_days: 1
     bbox_buffer_km: 25
     hazards: [Tornado]
+    export_csv: data/storm_reports_scraped.csv
+    metadata_path: data/storm_reports_scrape.json
+  # Optional: add `catalog: path/to/local.csv` if you want an offline fallback
+```
+
+To automate against Australian Bureau of Meteorology (BOM) warnings instead of
+the IEM feed, switch the provider to ``bom_warnings`` and optionally limit the
+states or phenomena to retain:
+
+```yaml
+  scrape:
+    provider: bom_warnings
+    states: [QLD, NSW]
+    phenomena: ["Severe Thunderstorm Warning"]
+    hazards: ["Severe Thunderstorm"]
+    lookback_days: 1
+    lookahead_days: 1
+    bbox_buffer_km: 25
     export_csv: data/storm_reports_scraped.csv
     metadata_path: data/storm_reports_scrape.json
 ```
@@ -86,12 +103,15 @@ message indicating that no storm day was detected. In `auto` mode the backfill s
 reaches the earliest/latest catalog event that also satisfies the AOI and hazard filters, so new reports are picked up as soon
 as they appear in the scraped feed.
 
-When the optional `scrape` block is configured, the pipeline automatically queries the Iowa Environmental Mesonet (IEM) Local
-Storm Reports feed (`provider: iem_lsr`) for the AOI bounds before each run. The `lookback_days` and `lookahead_days` keys
-extend the scrape window around the configured `post_from`/`post_to` dates, while `bbox_buffer_km` grows the geographic search
-radius beyond the AOI outline. Successful scrapes write the updated catalog to `export_csv` and capture provenance details in
-`metadata_path`. If the scrape fails (e.g., due to a network outage) the pipeline falls back to the static `catalog` so
-previously downloaded events can still trigger the run.
+When the optional `scrape` block is configured, the pipeline automatically queries the configured provider (Bureau of
+Meteorology warnings by default) for the AOI bounds before each run. The `lookback_days` and `lookahead_days` keys extend the
+scrape window around the configured `post_from`/`post_to` dates, while `bbox_buffer_km` grows the geographic search radius
+beyond the AOI outline. Successful scrapes write the updated catalog to `export_csv` and capture provenance details in
+`metadata_path`. The scrape must succeed when no fallback catalog is supplied; provide an explicit `catalog` path only if you
+need an offline contingency.
+
+> **Note:** The project intentionally omits offline test fixtures so the storm-report integration is always exercised against
+> live Bureau of Meteorology or IEM feeds. Run the pipeline end to end to verify configuration changes.
 
 To refresh the catalog outside of the pipeline, run the standalone scraper CLI:
 
@@ -100,11 +120,20 @@ python -m src.fetch_storm_reports \
   --aoi data/aoi_example.geojson \
   --start 2023-04-15 \
   --end 2023-04-24 \
-  --hazard Tornado \
+  --provider bom_warnings \
+  --state QLD --state NSW \
+  --phenomenon "Severe Thunderstorm Warning" \
+  --hazard "Severe Thunderstorm" \
   --bbox-buffer-km 25 \
   --output data/storm_reports_scraped.csv \
   --metadata data/storm_reports_scrape.json
 ```
+
+The ``--provider`` flag defaults to ``iem_lsr`` (NOAA/IEM Local Storm Reports).
+When set to ``bom_warnings`` the command honours ``--state`` and
+``--phenomenon`` filters to keep only Australian warnings for the requested
+jurisdictions and event types. Both providers support repeated ``--hazard``
+flags to keep only specific hazard keywords in the resulting catalog.
 
 The command writes a CSV compatible with the storm filter and an optional JSON metadata log documenting the scrape window,
 bounds, hazards, and record count.
