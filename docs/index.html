@@ -22,9 +22,17 @@
   </main>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const map = L.map('map').setView([-27.0, 151.5], 9);
-    let combinedBounds = null;
+    const mapContainer = document.getElementById('map');
+
+    const australiaBounds = L.latLngBounds([-44.0, 112.0], [-10.0, 154.0]);
+    let combinedBounds = L.latLngBounds(
+      australiaBounds.getSouthWest(),
+      australiaBounds.getNorthEast()
+    );
     let stormEventCount = 0;
+
+    const map = L.map(mapContainer);
+    map.fitBounds(combinedBounds);
 
     const australianBasemap = L.tileLayer(
       'https://services.ga.gov.au/gis/rest/services/NationalMap_Colour_Topography/MapServer/tile/{z}/{y}/{x}',
@@ -57,7 +65,36 @@
       { position: 'topright' }
     ).addTo(map);
 
-    const mapContainer = document.getElementById('map');
+    const stormStrip = document.createElement('div');
+    stormStrip.id = 'storm-strip';
+    stormStrip.className = 'storm-strip hidden';
+    stormStrip.setAttribute('aria-live', 'polite');
+    mapContainer.appendChild(stormStrip);
+
+    function createIcon(svgMarkup) {
+      return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgMarkup)}`;
+    }
+
+    const hazardIconSources = {
+      tornado: createIcon(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-hidden="true"><defs><linearGradient id="twist" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f94144"/><stop offset="1" stop-color="#f3722c"/></linearGradient></defs><rect width="48" height="48" rx="14" fill="url(#twist)"/><path d="M10 12h28M14 19h20M12 26h24M18 32h12M21 37h6" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+      ),
+      hail: createIcon(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-hidden="true"><rect width="48" height="48" rx="14" fill="#14213d"/><g stroke="#e0fbfc" stroke-width="3" stroke-linecap="round"><path d="M14 18c0-6 6-10 10-10s10 4 10 10" fill="none"/><line x1="12" y1="24" x2="12" y2="24"/><line x1="20" y1="32" x2="20" y2="32"/><line x1="28" y1="26" x2="28" y2="26"/><line x1="36" y1="34" x2="36" y2="34"/></g></svg>`
+      ),
+      wind: createIcon(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-hidden="true"><rect width="48" height="48" rx="14" fill="#264653"/><path d="M12 20h16a4 4 0 100-8M16 28h20a5 5 0 110 10" fill="none" stroke="#f1faee" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+      ),
+      rainfall: createIcon(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-hidden="true"><rect width="48" height="48" rx="14" fill="#1d3557"/><path d="M16 20a8 8 0 0116 0h2a6 6 0 110 12H14a6 6 0 010-12h2z" fill="#f8f9fa"/><g fill="#457b9d"><path d="M18 36l-2.5 6h5z"/><path d="M26 36l-2.5 6h5z"/><path d="M34 36l-2.5 6h5z"/></g></svg>`
+      ),
+      flood: createIcon(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-hidden="true"><rect width="48" height="48" rx="14" fill="#0b7285"/><path d="M12 24c4 0 4-4 8-4s4 4 8 4 4-4 8-4 4 4 8 4" fill="none" stroke="#e0fbfc" stroke-width="3" stroke-linecap="round"/><path d="M12 32c4 0 4-4 8-4s4 4 8 4 4-4 8-4 4 4 8 4" fill="none" stroke="#e0fbfc" stroke-width="3" stroke-linecap="round"/></svg>`
+      ),
+      default: createIcon(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-hidden="true"><rect width="48" height="48" rx="14" fill="#3a0ca3"/><path d="M18 20a8 8 0 0116 0h2a6 6 0 010 12H14a6 6 0 010-12h4z" fill="#fafafa"/><path d="M14 34h20" stroke="#f72585" stroke-width="3" stroke-linecap="round"/></svg>`
+      )
+    };
 
     function showEmptyState(message) {
       let banner = document.querySelector('#map .map-empty');
@@ -113,8 +150,7 @@
         const layer = L.geoJSON(data, { style }).addTo(map);
         const bounds = layer.getBounds();
         if (bounds.isValid()) {
-          combinedBounds = L.latLngBounds(bounds);
-          map.fitBounds(combinedBounds.pad(0.05));
+          fitToBounds(bounds);
         }
         buildLegend();
       })
@@ -150,12 +186,69 @@
 
     function fitToBounds(newBounds) {
       if (!newBounds || !newBounds.isValid()) return;
-      if (combinedBounds) {
-        combinedBounds.extend(newBounds);
-      } else {
-        combinedBounds = L.latLngBounds(newBounds);
+      combinedBounds.extend(newBounds);
+      map.fitBounds(combinedBounds.pad(0.05));
+    }
+
+    function getHazardIcon(hazardName) {
+      if (!hazardName) return hazardIconSources.default;
+      const key = hazardName.toLowerCase();
+      if (key.includes('tornado')) return hazardIconSources.tornado;
+      if (key.includes('hail')) return hazardIconSources.hail;
+      if (key.includes('wind')) return hazardIconSources.wind;
+      if (key.includes('flood')) return hazardIconSources.flood;
+      if (key.includes('rain') || key.includes('storm')) {
+        return hazardIconSources.rainfall;
       }
-      map.fitBounds(combinedBounds.pad(0.1));
+      return hazardIconSources.default;
+    }
+
+    function renderStormStrip(features) {
+      if (!stormStrip) return;
+      stormStrip.innerHTML = '';
+
+      if (!Array.isArray(features) || !features.length) {
+        stormStrip.classList.add('hidden');
+        mapContainer.classList.remove('has-storm-strip');
+        return;
+      }
+
+      const sorted = [...features].sort((a, b) => {
+        const timeA = new Date(a.properties?.event_time_utc || 0).getTime();
+        const timeB = new Date(b.properties?.event_time_utc || 0).getTime();
+        return timeB - timeA;
+      });
+
+      for (const feature of sorted) {
+        const props = feature.properties || {};
+        const hazardLabel = props.hazard || 'Storm report';
+        const timestamp = props.event_time_utc
+          ? new Date(props.event_time_utc).toLocaleString()
+          : '';
+        const details = props.details || '';
+
+        const card = document.createElement('article');
+        card.className = 'storm-card';
+        card.innerHTML = `
+          <img src="${getHazardIcon(hazardLabel)}" alt="${hazardLabel}" />
+          <div class="storm-card__copy">
+            <p class="storm-card__hazard">${hazardLabel}</p>
+            ${timestamp ? `<p class="storm-card__time">${timestamp}</p>` : ''}
+            ${details ? `<p class="storm-card__details">${details}</p>` : ''}
+          </div>
+        `;
+
+        if (details) {
+          card.title = `${hazardLabel}${timestamp ? ` — ${timestamp}` : ''}\n${details}`;
+        } else if (timestamp) {
+          card.title = `${hazardLabel} — ${timestamp}`;
+        }
+
+        stormStrip.appendChild(card);
+      }
+
+      stormStrip.classList.remove('hidden');
+      mapContainer.classList.add('has-storm-strip');
     }
 
     fetch('data/storm_events.geojson')
@@ -168,10 +261,14 @@
       .then(data => {
         const features = Array.isArray(data.features) ? data.features : [];
         if (!features.length) {
+          stormEventCount = 0;
+          renderStormStrip([]);
+          buildLegend();
           return;
         }
 
         stormEventCount = features.length;
+        renderStormStrip(features);
         const layer = L.geoJSON(data, {
           pointToLayer: (_feature, latlng) =>
             L.circleMarker(latlng, {
@@ -194,6 +291,27 @@
               ${timestamp ? `<p>${timestamp}</p>` : ''}
               ${details}
             `);
+
+            const labelParts = [];
+            if (props.hazard) {
+              labelParts.push(props.hazard);
+            }
+            if (props.event_time_utc) {
+              const timeString = new Date(props.event_time_utc).toLocaleString();
+              labelParts.push(timeString);
+            }
+            if (props.details) {
+              labelParts.push(props.details);
+            }
+
+            if (labelParts.length) {
+              layer.bindTooltip(labelParts.join(' • '), {
+                permanent: true,
+                direction: 'top',
+                offset: [0, -10],
+                className: 'storm-tooltip'
+              });
+            }
           }
         }).addTo(map);
 
@@ -211,6 +329,9 @@
       })
       .catch(err => {
         console.warn('Storm events layer unavailable', err);
+        stormEventCount = 0;
+        renderStormStrip([]);
+        buildLegend();
       });
 
     function renderScoring(metadata) {

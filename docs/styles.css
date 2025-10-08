@@ -58,6 +58,10 @@ main {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
+#map.has-storm-strip ~ #legend {
+  bottom: 150px;
+}
+
 #legend .legend-divider {
   border: none;
   border-top: 1px solid rgba(31, 45, 61, 0.15);
@@ -150,4 +154,103 @@ main {
   background: linear-gradient(135deg, #f94144, #f3722c);
   border: 1px solid #a4161a;
   display: inline-block;
+}
+
+.leaflet-tooltip.storm-tooltip {
+  background: rgba(255, 255, 255, 0.92);
+  color: #1f2d3d;
+  border: 1px solid rgba(164, 22, 26, 0.6);
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.35rem 0.55rem;
+  text-align: center;
+}
+
+.leaflet-tooltip-top.storm-tooltip::before {
+  border-top-color: rgba(164, 22, 26, 0.6);
+}
+
+.storm-strip {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding: 0.75rem 1rem;
+  background: rgba(15, 23, 42, 0.82);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.45);
+  color: #f8fafc;
+  pointer-events: auto;
+  scroll-snap-type: x proximity;
+  backdrop-filter: blur(6px);
+}
+
+.storm-strip.hidden {
+  display: none;
+}
+
+.storm-strip::-webkit-scrollbar {
+  height: 6px;
+}
+
+.storm-strip::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+  border-radius: 999px;
+}
+
+.storm-strip::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.storm-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 220px;
+  scroll-snap-align: start;
+}
+
+.storm-card img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.4);
+  flex-shrink: 0;
+}
+
+.storm-card__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.storm-card__hazard {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.storm-card__time {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.storm-card__details {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(209, 213, 219, 0.9);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
