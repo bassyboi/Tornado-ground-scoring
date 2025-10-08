@@ -10,14 +10,14 @@
 <body>
   <header>
     <h1>Ground Scour Map</h1>
-    <p>Auto-built from Sentinel pre/post windows.</p>
+    <p>Automated Sentinel-based detection of tornado ground scouring, with optional severity scoring.</p>
   </header>
   <main>
     <div id="map"></div>
     <div id="legend"></div>
     <section id="scoring-doc" class="panel">
-      <h2>Scoring Overview</h2>
-      <p class="loading">Loading scoring metadata…</p>
+      <h2>Detection &amp; Scoring Overview</h2>
+      <p class="loading">Loading processing metadata…</p>
     </section>
   </main>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha512-o9N1j7kG6r0s+P0LlwM651op01qmPvvrLpzjAU6Rz6U02zszbmWzxubUANkqG0x74pJ1gzhS+M4LMEnM08JdKw==" crossorigin=""></script>
@@ -216,7 +216,7 @@
     function renderScoring(metadata) {
       const container = document.getElementById('scoring-doc');
       if (!metadata || !metadata.scoring) {
-        container.innerHTML = '<h2>Scoring Overview</h2><p>Scoring metadata not available.</p>';
+        container.innerHTML = '<h2>Detection &amp; Scoring Overview</h2><p>Processing metadata not available.</p>';
         return;
       }
 
@@ -263,7 +263,7 @@
           : 'n/a';
 
       container.innerHTML = `
-        <h2>Scoring Overview</h2>
+        <h2>Detection &amp; Scoring Overview</h2>
         <p class="timestamp">Generated ${generated}</p>
         <section>
           <h3>Components</h3>
@@ -300,7 +300,7 @@
       .then(renderScoring)
       .catch(() => {
         const container = document.getElementById('scoring-doc');
-        container.innerHTML = '<h2>Scoring Overview</h2><p>Scoring metadata not available.</p>';
+        container.innerHTML = '<h2>Detection &amp; Scoring Overview</h2><p>Processing metadata not available.</p>';
       });
   </script>
 </body>
