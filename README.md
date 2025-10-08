@@ -43,7 +43,9 @@ See `data/config.yaml` for the default options:
 - **Storm filter**: Optionally gate the entire run on a catalog of historical storm reports. Provide a CSV file with at least
   the event timestamp, hazard type, and coordinates. When enabled, the pipeline loads the catalog, keeps events that intersect
   the AOI (with an optional distance buffer) within the specified post-event window, exports them to GeoJSON, and aborts early
-  when no qualifying storm days are found.
+  when no qualifying storm days are found. Add the optional `auto_backfill_*` keys to slide the post-event window forward or
+  backward (e.g., for backfilling newly reported storms) until qualifying events are discovered. The storm filter can also
+  auto-scrape NOAA/IEM Local Storm Reports so the catalog stays fresh without manual downloads.
 
 ### Storm-filter workflow
 
@@ -61,7 +63,18 @@ storm_filter:
   distance_km: 50
   days_before: 0
   days_after: 1
+  auto_backfill_max_days: 7
+  auto_backfill_step_days: 1
+  auto_backfill_directions: [backward, forward]
   export_geojson: docs/data/storm_events.geojson
+  scrape:
+    provider: iem_lsr
+    lookback_days: 7
+    lookahead_days: 1
+    bbox_buffer_km: 25
+    hazards: [Tornado]
+    export_csv: data/storm_reports_scraped.csv
+    metadata_path: data/storm_reports_scrape.json
 ```
 
 Populate the catalog with historical or forecast storm-day observations. When the post-analysis window (plus optional lead/lag
@@ -69,6 +82,29 @@ days) contains at least one entry that falls within the AOI buffer, the full Sen
 GeoJSON (`docs/data/changes.geojson`) and KML (`docs/data/changes.kml`) outputs. If no storm events are found, the command
 skips the expensive remote sensing steps, clears previous change layers by writing empty GeoJSON/KML stubs, and exits with a
 message indicating that no storm day was detected.
+
+When the optional `scrape` block is configured, the pipeline automatically queries the Iowa Environmental Mesonet (IEM) Local
+Storm Reports feed (`provider: iem_lsr`) for the AOI bounds before each run. The `lookback_days` and `lookahead_days` keys
+extend the scrape window around the configured `post_from`/`post_to` dates, while `bbox_buffer_km` grows the geographic search
+radius beyond the AOI outline. Successful scrapes write the updated catalog to `export_csv` and capture provenance details in
+`metadata_path`. If the scrape fails (e.g., due to a network outage) the pipeline falls back to the static `catalog` so
+previously downloaded events can still trigger the run.
+
+To refresh the catalog outside of the pipeline, run the standalone scraper CLI:
+
+```bash
+python -m src.fetch_storm_reports \
+  --aoi data/aoi_example.geojson \
+  --start 2023-04-15 \
+  --end 2023-04-24 \
+  --hazard Tornado \
+  --bbox-buffer-km 25 \
+  --output data/storm_reports_scraped.csv \
+  --metadata data/storm_reports_scrape.json
+```
+
+The command writes a CSV compatible with the storm filter and an optional JSON metadata log documenting the scrape window,
+bounds, hazards, and record count.
 
 ## GitHub Pages workflow
 
