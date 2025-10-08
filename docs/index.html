@@ -22,9 +22,71 @@
   </main>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const map = L.map('map').setView([-27.0, 151.5], 9);
+    const DEFAULT_VIEW = { center: [-27.0, 151.5], zoom: 9 };
+    const STORAGE_KEY = 'gss-map-view-state-v1';
+
+    function readStoredState() {
+      if (typeof window === 'undefined' || !window.localStorage) return null;
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch (err) {
+        console.warn('Failed to read stored map state', err);
+        return null;
+      }
+    }
+
+    function writeStoredState(state) {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (err) {
+        console.warn('Failed to persist map state', err);
+      }
+    }
+
+    function arrayToBounds(boundsArray) {
+      if (!Array.isArray(boundsArray) || boundsArray.length !== 2) return null;
+      const [sw, ne] = boundsArray;
+      if (!Array.isArray(sw) || !Array.isArray(ne) || sw.length !== 2 || ne.length !== 2) {
+        return null;
+      }
+      return L.latLngBounds(
+        L.latLng(Number(sw[0]), Number(sw[1])),
+        L.latLng(Number(ne[0]), Number(ne[1]))
+      );
+    }
+
+    const savedViewState = readStoredState();
+    const map = L.map('map', { preferCanvas: true });
+
+    if (savedViewState?.context === 'custom' && savedViewState?.bounds) {
+      const storedBounds = arrayToBounds(savedViewState.bounds);
+      if (storedBounds && storedBounds.isValid()) {
+        map.fitBounds(storedBounds, { animate: false });
+      } else if (savedViewState?.center && typeof savedViewState.zoom === 'number') {
+        map.setView(savedViewState.center, savedViewState.zoom);
+      } else {
+        map.setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
+      }
+    } else if (savedViewState?.center && typeof savedViewState.zoom === 'number') {
+      map.setView(savedViewState.center, savedViewState.zoom);
+    } else {
+      map.setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
+    }
+
+    map.createPane('track-outline');
+    map.getPane('track-outline').style.zIndex = 450;
+    map.getPane('track-outline').style.pointerEvents = 'none';
+
     let combinedBounds = null;
+    let scarBounds = null;
+    let trackOutlineLayer = null;
     let stormEventCount = 0;
+    let isApplyingContext = false;
+    let initialContextApplied = false;
+    const contextButtons = {};
+    let activeContext = savedViewState?.context || 'track';
 
     const australianBasemap = L.tileLayer(
       'https://services.ga.gov.au/gis/rest/services/NationalMap_Colour_Topography/MapServer/tile/{z}/{y}/{x}',
@@ -58,6 +120,158 @@
     ).addTo(map);
 
     const mapContainer = document.getElementById('map');
+
+    const CONTEXT_DEFINITIONS = {
+      track: {
+        label: 'Track',
+        description: 'Zoom to the mapped tornado scar.',
+        getBounds: () => (scarBounds ? scarBounds.pad(0.08) : null),
+        maxZoom: 15
+      },
+      neighborhood: {
+        label: 'Neighborhood',
+        description: 'Show nearby damage context.',
+        getBounds: () => {
+          if (scarBounds) {
+            return scarBounds.pad(0.4);
+          }
+          return combinedBounds ? combinedBounds.pad(0.1) : null;
+        },
+        maxZoom: 13
+      },
+      region: {
+        label: 'Region',
+        description: 'Compare the scar to the wider region.',
+        getBounds: () => (combinedBounds ? combinedBounds.pad(0.25) : null),
+        maxZoom: 11
+      }
+    };
+
+    function updateContextButtons() {
+      Object.entries(contextButtons).forEach(([key, button]) => {
+        const bounds = CONTEXT_DEFINITIONS[key]?.getBounds?.();
+        const enabled = !!(bounds && bounds.isValid());
+        button.disabled = !enabled;
+        button.classList.toggle('is-active', key === activeContext && enabled);
+      });
+    }
+
+    function persistViewState() {
+      if (!map._loaded) return;
+      const center = map.getCenter();
+      const bounds = map.getBounds();
+      const state = {
+        context: activeContext,
+        center: [Number(center.lat), Number(center.lng)],
+        zoom: map.getZoom(),
+        bounds: [
+          [bounds.getSouthWest().lat, bounds.getSouthWest().lng],
+          [bounds.getNorthEast().lat, bounds.getNorthEast().lng]
+        ]
+      };
+      writeStoredState(state);
+    }
+
+    function refreshContextAvailability() {
+      updateContextButtons();
+    }
+
+    function setActiveContext(key, { immediate = false } = {}) {
+      const context = CONTEXT_DEFINITIONS[key];
+      if (!context) return false;
+      const bounds = context.getBounds();
+      if (!bounds || !bounds.isValid()) return false;
+
+      activeContext = key;
+      updateContextButtons();
+
+      const fitOptions = {
+        animate: !immediate,
+        padding: [30, 30]
+      };
+      if (context.maxZoom != null) {
+        fitOptions.maxZoom = context.maxZoom;
+      }
+
+      isApplyingContext = true;
+      map.fitBounds(bounds, fitOptions);
+      return true;
+    }
+
+    function applyStoredBounds(boundsArray) {
+      const storedBounds = arrayToBounds(boundsArray);
+      if (!storedBounds || !storedBounds.isValid()) {
+        return false;
+      }
+      isApplyingContext = true;
+      map.fitBounds(storedBounds, { animate: false, padding: [30, 30] });
+      return true;
+    }
+
+    function maybeApplyInitialView() {
+      if (initialContextApplied) return;
+      refreshContextAvailability();
+
+      if (activeContext === 'custom' && savedViewState?.bounds) {
+        const applied = applyStoredBounds(savedViewState.bounds);
+        if (applied) {
+          initialContextApplied = true;
+          updateContextButtons();
+          return;
+        }
+      }
+
+      const preferredKey = CONTEXT_DEFINITIONS[activeContext] ? activeContext : 'track';
+      const preferredApplied = setActiveContext(preferredKey, { immediate: true });
+      if (preferredApplied) {
+        initialContextApplied = true;
+        return;
+      }
+
+      if (savedViewState?.bounds) {
+        const fallbackApplied = applyStoredBounds(savedViewState.bounds);
+        if (fallbackApplied) {
+          activeContext = 'custom';
+          initialContextApplied = true;
+          updateContextButtons();
+        }
+      }
+    }
+
+    const contextControl = L.control({ position: 'topleft' });
+    contextControl.onAdd = () => {
+      const container = L.DomUtil.create('div', 'leaflet-bar context-control');
+      L.DomEvent.disableClickPropagation(container);
+      L.DomEvent.disableScrollPropagation(container);
+      Object.entries(CONTEXT_DEFINITIONS).forEach(([key, info]) => {
+        const button = L.DomUtil.create('button', 'context-button', container);
+        button.type = 'button';
+        button.textContent = info.label;
+        button.title = info.description;
+        button.disabled = true;
+        button.dataset.contextKey = key;
+        button.addEventListener('click', () => {
+          setActiveContext(key);
+        });
+        contextButtons[key] = button;
+      });
+      return container;
+    };
+    contextControl.addTo(map);
+
+    map.on('movestart', () => {
+      if (!isApplyingContext) {
+        activeContext = 'custom';
+        updateContextButtons();
+      }
+    });
+
+    map.on('moveend', () => {
+      if (isApplyingContext) {
+        isApplyingContext = false;
+      }
+      persistViewState();
+    });
 
     function showEmptyState(message) {
       let banner = document.querySelector('#map .map-empty');
@@ -107,14 +321,29 @@
         if (!features.length) {
           showEmptyState('No change polygons were published for the latest run.');
           buildLegend();
+          maybeApplyInitialView();
           return;
         }
         clearEmptyState();
         const layer = L.geoJSON(data, { style }).addTo(map);
         const bounds = layer.getBounds();
         if (bounds.isValid()) {
-          combinedBounds = L.latLngBounds(bounds);
-          map.fitBounds(combinedBounds.pad(0.05));
+          scarBounds = L.latLngBounds(bounds);
+          if (trackOutlineLayer) {
+            trackOutlineLayer.remove();
+          }
+          trackOutlineLayer = L.geoJSON(data, {
+            pane: 'track-outline',
+            interactive: false,
+            style: () => ({
+              color: '#f3722c',
+              weight: 2.5,
+              fillOpacity: 0,
+              dashArray: '8 4',
+              opacity: 0.85
+            })
+          }).addTo(map);
+          fitToBounds(bounds);
         }
         buildLegend();
       })
@@ -122,6 +351,7 @@
         console.error('Failed to load GeoJSON', err);
         showEmptyState('Change layer unavailable. Latest run did not produce any map features.');
         buildLegend();
+        maybeApplyInitialView();
       });
 
     function buildLegend() {
@@ -155,7 +385,11 @@
       } else {
         combinedBounds = L.latLngBounds(newBounds);
       }
-      map.fitBounds(combinedBounds.pad(0.1));
+      refreshContextAvailability();
+      maybeApplyInitialView();
+      if (initialContextApplied && activeContext !== 'custom' && !isApplyingContext) {
+        setActiveContext(activeContext);
+      }
     }
 
     fetch('data/storm_events.geojson')
