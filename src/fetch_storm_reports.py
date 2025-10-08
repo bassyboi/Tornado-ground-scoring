@@ -11,6 +11,7 @@ import click
 from .aoi_utils import load_aoi
 from .storm_reports import (
     buffered_bounds,
+    fetch_bom_warnings,
     fetch_iem_local_storm_reports,
     save_metadata,
     write_catalog_csv,
@@ -21,6 +22,13 @@ from .storm_reports import (
 @click.option("--aoi", "aoi_path", type=click.Path(exists=True, dir_okay=False), required=True)
 @click.option("--start", "start_str", required=True, help="UTC start datetime (YYYY-MM-DD or ISO 8601).")
 @click.option("--end", "end_str", required=True, help="UTC end datetime (inclusive, YYYY-MM-DD or ISO 8601).")
+@click.option(
+    "--provider",
+    type=click.Choice(["iem_lsr", "bom_warnings"], case_sensitive=False),
+    default="iem_lsr",
+    show_default=True,
+    help="Storm report source to query.",
+)
 @click.option(
     "--hazard",
     "hazards",
@@ -33,6 +41,18 @@ from .storm_reports import (
     type=float,
     show_default=True,
     help="Expand the AOI bounds before scraping (kilometres).",
+)
+@click.option(
+    "--state",
+    "states",
+    multiple=True,
+    help="Filter BOM warnings by Australian state/territory (e.g., QLD).",
+)
+@click.option(
+    "--phenomenon",
+    "phenomena",
+    multiple=True,
+    help="Filter BOM warnings by phenomenon name (e.g., Severe Thunderstorm Warning).",
 )
 @click.option(
     "--output",
@@ -50,12 +70,15 @@ def main(
     aoi_path: str,
     start_str: str,
     end_str: str,
+    provider: str,
     hazards: Iterable[str],
     bbox_buffer_km: float,
+    states: Iterable[str],
+    phenomena: Iterable[str],
     output: str,
     metadata: str | None,
 ) -> None:
-    """Scrape IEM Local Storm Reports into a CSV compatible with storm_filter."""
+    """Scrape storm reports into a CSV compatible with :mod:`storm_filter`."""
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -71,24 +94,51 @@ def main(
     bounds = buffered_bounds(aoi, buffer_km=bbox_buffer_km)
     hazard_list = [str(h) for h in hazards] if hazards else None
 
-    reports = fetch_iem_local_storm_reports(
-        start=start_dt,
-        end=end_inclusive,
-        bounds=bounds,
-        hazards=hazard_list,
-    )
+    provider_key = provider.strip().lower()
+    if provider_key not in {"iem_lsr", "bom_warnings"}:
+        raise click.BadParameter(
+            f"Unsupported provider '{provider}'. Expected 'iem_lsr' or 'bom_warnings'."
+        )
+
+    state_list = [str(code) for code in states] if states else None
+    phenomenon_list = [str(name) for name in phenomena] if phenomena else None
+
+    if provider_key == "iem_lsr":
+        reports = fetch_iem_local_storm_reports(
+            start=start_dt,
+            end=end_inclusive,
+            bounds=bounds,
+            hazards=hazard_list,
+        )
+    else:
+        reports = fetch_bom_warnings(
+            start=start_dt,
+            end=end_inclusive,
+            bounds=bounds,
+            hazards=hazard_list,
+            states=state_list,
+            phenomena=phenomenon_list,
+        )
+
     write_catalog_csv(reports, Path(output))
 
     if metadata:
         metadata_path = Path(metadata)
         payload = {
-            "provider": "iem_lsr",
+            "provider": provider_key,
             "start": start_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end": end_inclusive.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "bounds": list(bounds),
             "hazards": list(hazard_list or []),
             "count": int(len(reports)),
         }
+        if provider_key == "bom_warnings":
+            payload.update(
+                {
+                    "states": list(state_list or []),
+                    "phenomena": list(phenomenon_list or []),
+                }
+            )
         save_metadata(payload, metadata_path)
 
 
