@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import math
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -119,23 +120,20 @@ def relevant_events(
     if catalog.empty:
         return catalog.iloc[0:0].copy()
 
-    if hazards:
-        normalized_hazards = [h.upper() for h in hazards]
-        mask_hazard = catalog["hazard"].str.upper().isin(normalized_hazards)
-    else:
-        mask_hazard = pd.Series(True, index=catalog.index)
+    filtered = _filter_by_hazard_and_distance(
+        catalog=catalog,
+        aoi=aoi,
+        hazards=hazards,
+        distance_km=distance_km,
+    )
+    if filtered.empty:
+        return filtered
 
     start_date = window_start - timedelta(days=max(days_before, 0))
     end_date = window_end + timedelta(days=max(days_after, 0))
 
-    mask_date = catalog["event_date"].between(start_date, end_date)
-    filtered = catalog.loc[mask_hazard & mask_date].copy()
-    if filtered.empty:
-        return filtered
-
-    aoi_geom = _buffer_aoi(aoi, distance_km)
-    mask_geom = filtered.geometry.within(aoi_geom)
-    return filtered.loc[mask_geom].reset_index(drop=True)
+    mask_date = filtered["event_date"].between(start_date, end_date)
+    return filtered.loc[mask_date].reset_index(drop=True)
 
 
 def resolve_event_window(
@@ -148,7 +146,7 @@ def resolve_event_window(
     days_before: int,
     days_after: int,
     distance_km: float,
-    auto_backfill_max_days: int = 0,
+    auto_backfill_max_days: int | str | None = 0,
     auto_backfill_step_days: int = 1,
     auto_backfill_directions: Iterable[str] | str | None = None,
 ) -> EventWindow:
@@ -163,7 +161,18 @@ def resolve_event_window(
     """
 
     resolved_directions = _normalize_backfill_directions(auto_backfill_directions)
-    max_days = max(int(auto_backfill_max_days or 0), 0)
+    max_days = _resolve_max_backfill_days(
+        catalog=catalog,
+        aoi=aoi,
+        window_start=window_start,
+        window_end=window_end,
+        hazards=hazards,
+        days_before=days_before,
+        days_after=days_after,
+        distance_km=distance_km,
+        step_days=auto_backfill_step_days,
+        configured_max_days=auto_backfill_max_days,
+    )
     step_days = max(int(auto_backfill_step_days or 1), 1)
 
     # Always test the base window first.
@@ -203,6 +212,132 @@ def resolve_event_window(
         window_end=window_end,
         shift_days=0,
     )
+
+
+def _resolve_max_backfill_days(
+    *,
+    catalog: gpd.GeoDataFrame,
+    aoi: gpd.GeoDataFrame,
+    window_start: date,
+    window_end: date,
+    hazards: Sequence[str] | None,
+    days_before: int,
+    days_after: int,
+    distance_km: float,
+    step_days: int,
+    configured_max_days: int | str | None,
+) -> int:
+    """Resolve the auto-backfill span in days.
+
+    ``configured_max_days`` accepts an integer number of days, the string
+    ``"auto"`` (or ``"catalog"``/``"events"``) to expand to the furthest
+    qualifying catalog event, or ``None`` to apply the same behaviour. Any
+    other string is parsed as an integer. Negative values are clamped to zero.
+    """
+
+    if step_days <= 0:
+        step_days = 1
+
+    option = configured_max_days
+    if isinstance(option, str):
+        text = option.strip().lower()
+        if not text:
+            option = 0
+        elif text in {"auto", "catalog", "events", "full"}:
+            option = None
+        else:
+            try:
+                option = int(text)
+            except ValueError as exc:  # pragma: no cover - defensive
+                raise ValueError(
+                    "auto_backfill_max_days must be an integer or 'auto'"
+                ) from exc
+
+    if option is None:
+        return _auto_backfill_span_from_catalog(
+            catalog=catalog,
+            aoi=aoi,
+            window_start=window_start,
+            window_end=window_end,
+            hazards=hazards,
+            days_before=days_before,
+            days_after=days_after,
+            distance_km=distance_km,
+            step_days=step_days,
+        )
+
+    return max(int(option or 0), 0)
+
+
+def _auto_backfill_span_from_catalog(
+    *,
+    catalog: gpd.GeoDataFrame,
+    aoi: gpd.GeoDataFrame,
+    window_start: date,
+    window_end: date,
+    hazards: Sequence[str] | None,
+    days_before: int,
+    days_after: int,
+    distance_km: float,
+    step_days: int,
+) -> int:
+    """Return the minimum span (rounded to ``step_days``) covering catalog events."""
+
+    filtered = _filter_by_hazard_and_distance(
+        catalog=catalog,
+        aoi=aoi,
+        hazards=hazards,
+        distance_km=distance_km,
+    )
+    if filtered.empty or "event_date" not in filtered:
+        return 0
+
+    event_dates = pd.to_datetime(filtered["event_date"], errors="coerce")
+    event_dates = event_dates.dropna().dt.normalize()
+    if event_dates.empty:
+        return 0
+
+    base_start = pd.Timestamp(window_start) - pd.Timedelta(days=max(days_before, 0))
+    base_end = pd.Timestamp(window_end) + pd.Timedelta(days=max(days_after, 0))
+
+    earliest = event_dates.min()
+    latest = event_dates.max()
+
+    backward_span = abs(min((earliest - base_end).days, 0))
+    forward_span = max((latest - base_start).days, 0)
+    max_span = max(backward_span, forward_span)
+    if max_span <= 0:
+        return 0
+
+    return int(math.ceil(max_span / step_days) * step_days)
+
+
+def _filter_by_hazard_and_distance(
+    *,
+    catalog: gpd.GeoDataFrame,
+    aoi: gpd.GeoDataFrame,
+    hazards: Sequence[str] | None,
+    distance_km: float,
+) -> gpd.GeoDataFrame:
+    """Return catalog rows matching the requested hazards and AOI buffer."""
+
+    if catalog.empty:
+        return catalog.iloc[0:0].copy()
+
+    filtered = catalog.copy()
+    if hazards:
+        normalized_hazards = {h.upper() for h in hazards if isinstance(h, str)}
+        hazard_series = filtered["hazard"].astype(str).str.upper()
+        filtered = filtered.loc[hazard_series.isin(normalized_hazards)]
+    if filtered.empty:
+        return filtered.iloc[0:0].copy()
+
+    if distance_km > 0:
+        aoi_geom = _buffer_aoi(aoi, distance_km)
+        mask_geom = filtered.geometry.within(aoi_geom)
+        filtered = filtered.loc[mask_geom]
+
+    return filtered.reset_index(drop=True)
 
 
 def _normalize_backfill_directions(
