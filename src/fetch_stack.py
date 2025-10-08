@@ -113,7 +113,15 @@ def mosaic_s2(
 
     try:
         epsg = target_epsg or DEFAULT_STACK_EPSG
-        stack = stackstac.stack(items, assets=bands, resolution=resolution, epsg=epsg)
+        bounds_latlon = aoi_bounds_wgs84(aoi_gdf)
+        stack = stackstac.stack(
+            items,
+            assets=bands,
+            resolution=resolution,
+            epsg=epsg,
+            bounds_latlon=bounds_latlon,
+            chunksize={"x": 2048, "y": 2048},
+        )
         data = _nanmedian_percentile(stack)
         if "band" not in data.dims:
             data = data.expand_dims({"band": list(bands)})
@@ -142,7 +150,15 @@ def mosaic_s1(
 
     try:
         epsg = target_epsg or DEFAULT_STACK_EPSG
-        stack = stackstac.stack(items, assets=bands, resolution=resolution, epsg=epsg)
+        bounds_latlon = aoi_bounds_wgs84(aoi_gdf)
+        stack = stackstac.stack(
+            items,
+            assets=bands,
+            resolution=resolution,
+            epsg=epsg,
+            bounds_latlon=bounds_latlon,
+            chunksize={"x": 2048, "y": 2048},
+        )
         data = _nanmedian_percentile(stack)
         if "band" not in data.dims:
             data = data.expand_dims({"band": list(bands)})
