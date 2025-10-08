@@ -20,9 +20,24 @@ main {
   height: calc(100vh - 260px);
   min-height: 420px;
   border-radius: 12px;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
   position: relative;
+}
+
+#map .leaflet-pane.leaflet-tile-pane,
+#map .leaflet-pane.leaflet-overlay-pane,
+#map .leaflet-pane.leaflet-shadow-pane,
+#map .leaflet-pane.leaflet-marker-pane {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+#map .leaflet-pane.leaflet-tooltip-pane,
+#map .leaflet-pane.leaflet-popup-pane,
+#map .leaflet-top,
+#map .leaflet-bottom {
+  overflow: visible;
 }
 
 .context-control {
@@ -97,6 +112,7 @@ main {
   padding: 1rem;
   border-radius: 8px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  z-index: 600;
 }
 
 #legend .legend-divider {
