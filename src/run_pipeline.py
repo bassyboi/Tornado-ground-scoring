@@ -134,7 +134,7 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
             days_before=int(storm_cfg.get("days_before", 0)),
             days_after=int(storm_cfg.get("days_after", 0)),
             distance_km=float(storm_cfg.get("distance_km", 0.0)),
-            auto_backfill_max_days=int(storm_cfg.get("auto_backfill_max_days", 0) or 0),
+            auto_backfill_max_days=storm_cfg.get("auto_backfill_max_days", 0),
             auto_backfill_step_days=int(storm_cfg.get("auto_backfill_step_days", 1) or 1),
             auto_backfill_directions=backfill_dirs,
         )

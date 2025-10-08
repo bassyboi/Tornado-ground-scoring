@@ -44,8 +44,9 @@ See `data/config.yaml` for the default options:
   the event timestamp, hazard type, and coordinates. When enabled, the pipeline loads the catalog, keeps events that intersect
   the AOI (with an optional distance buffer) within the specified post-event window, exports them to GeoJSON, and aborts early
   when no qualifying storm days are found. Add the optional `auto_backfill_*` keys to slide the post-event window forward or
-  backward (e.g., for backfilling newly reported storms) until qualifying events are discovered. The storm filter can also
-  auto-scrape NOAA/IEM Local Storm Reports so the catalog stays fresh without manual downloads.
+  backward (e.g., for backfilling newly reported storms) until qualifying events are discovered. Set
+  `auto_backfill_max_days: auto` to let the filter expand as far as the catalog contains qualifying events. The storm filter can
+  also auto-scrape NOAA/IEM Local Storm Reports so the catalog stays fresh without manual downloads.
 
 ### Storm-filter workflow
 
@@ -63,7 +64,7 @@ storm_filter:
   distance_km: 50
   days_before: 0
   days_after: 1
-  auto_backfill_max_days: 7
+  auto_backfill_max_days: auto
   auto_backfill_step_days: 1
   auto_backfill_directions: [backward, forward]
   export_geojson: docs/data/storm_events.geojson
@@ -81,7 +82,9 @@ Populate the catalog with historical or forecast storm-day observations. When th
 days) contains at least one entry that falls within the AOI buffer, the full Sentinel processing pipeline runs and writes both
 GeoJSON (`docs/data/changes.geojson`) and KML (`docs/data/changes.kml`) outputs. If no storm events are found, the command
 skips the expensive remote sensing steps, clears previous change layers by writing empty GeoJSON/KML stubs, and exits with a
-message indicating that no storm day was detected.
+message indicating that no storm day was detected. In `auto` mode the backfill search keeps extending the post window until it
+reaches the earliest/latest catalog event that also satisfies the AOI and hazard filters, so new reports are picked up as soon
+as they appear in the scraped feed.
 
 When the optional `scrape` block is configured, the pipeline automatically queries the Iowa Environmental Mesonet (IEM) Local
 Storm Reports feed (`provider: iem_lsr`) for the AOI bounds before each run. The `lookback_days` and `lookahead_days` keys

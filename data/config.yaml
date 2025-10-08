@@ -38,7 +38,7 @@ storm_filter:
   distance_km: 50
   days_before: 0
   days_after: 1
-  auto_backfill_max_days: 7
+  auto_backfill_max_days: auto
   auto_backfill_step_days: 1
   auto_backfill_directions:
     - backward
