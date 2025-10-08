@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 import xml.etree.ElementTree as ET
@@ -17,7 +17,7 @@ import yaml
 from rasterio import features
 from shapely.geometry import mapping
 
-from . import change_core, fetch_stack, gss, storm_filter
+from . import change_core, fetch_stack, gss, storm_filter, storm_reports
 from .aoi_utils import load_aoi
 
 LOGGER = logging.getLogger(__name__)
@@ -50,16 +50,82 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
 
     storm_cfg = cfg.get("storm_filter", {})
     if storm_cfg.get("enabled"):
-        if "catalog" not in storm_cfg:
-            raise KeyError("storm_filter.catalog must be provided when enabled")
         schema = storm_filter.CatalogSchema(
             datetime_column=storm_cfg.get("datetime_column", "event_time_utc"),
             hazard_column=storm_cfg.get("hazard_column", "hazard"),
             latitude_column=storm_cfg.get("latitude_column", "latitude"),
             longitude_column=storm_cfg.get("longitude_column", "longitude"),
         )
-        catalog = storm_filter.load_catalog(Path(storm_cfg["catalog"]), schema)
-        events = storm_filter.relevant_events(
+        catalog = None
+        scrape_cfg = storm_cfg.get("scrape")
+        if scrape_cfg:
+            provider = (scrape_cfg.get("provider") or "iem_lsr").strip().lower()
+            if provider != "iem_lsr":
+                raise ValueError(
+                    f"Unsupported storm_filter.scrape.provider '{provider}' (expected 'iem_lsr')"
+                )
+            hazard_overrides = scrape_cfg.get("hazards")
+            hazard_list = hazard_overrides if hazard_overrides is not None else storm_cfg.get("hazards")
+            if hazard_list:
+                hazard_list = [str(value) for value in hazard_list]
+            lookback_days = int(scrape_cfg.get("lookback_days", 0) or 0)
+            lookahead_days = int(scrape_cfg.get("lookahead_days", 0) or 0)
+            bbox_buffer_km = float(scrape_cfg.get("bbox_buffer_km", 0.0) or 0.0)
+
+            scrape_start_date = post_from - timedelta(days=lookback_days)
+            scrape_end_date = post_to + timedelta(days=lookahead_days)
+            start_dt = datetime.combine(scrape_start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            end_dt = datetime.combine(
+                scrape_end_date + timedelta(days=1), datetime.min.time()
+            ).replace(tzinfo=timezone.utc)
+            bounds = storm_reports.buffered_bounds(aoi, buffer_km=bbox_buffer_km)
+            try:
+                catalog = storm_reports.fetch_iem_local_storm_reports(
+                    start=start_dt,
+                    end=end_dt,
+                    bounds=bounds,
+                    hazards=hazard_list,
+                )
+            except Exception:  # pragma: no cover - network dependency
+                LOGGER.exception(
+                    "Storm report scrape failed; falling back to local catalog if available"
+                )
+                catalog = None
+            else:
+                LOGGER.info(
+                    "Scraped %s storm reports between %s and %s using %s",
+                    len(catalog),
+                    scrape_start_date,
+                    scrape_end_date,
+                    provider,
+                )
+                export_csv = scrape_cfg.get("export_csv")
+                if export_csv:
+                    storm_reports.write_catalog_csv(catalog, Path(export_csv))
+                metadata_path = scrape_cfg.get("metadata_path")
+                if metadata_path:
+                    metadata = {
+                        "provider": provider,
+                        "start": start_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "end": end_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "bounds": list(bounds),
+                        "hazards": list(hazard_list or []),
+                        "count": int(len(catalog)),
+                    }
+                    storm_reports.save_metadata(metadata, Path(metadata_path))
+                if catalog.empty:
+                    LOGGER.info(
+                        "Storm report scrape returned no events for the requested window"
+                    )
+        if catalog is None:
+            catalog_path = storm_cfg.get("catalog")
+            if not catalog_path:
+                raise KeyError(
+                    "storm_filter.catalog must be provided when scraping fails or is disabled"
+                )
+            catalog = storm_filter.load_catalog(Path(catalog_path), schema)
+        backfill_dirs = storm_cfg.get("auto_backfill_directions")
+        selection = storm_filter.resolve_event_window(
             catalog=catalog,
             aoi=aoi,
             window_start=post_from,
@@ -68,15 +134,28 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
             days_before=int(storm_cfg.get("days_before", 0)),
             days_after=int(storm_cfg.get("days_after", 0)),
             distance_km=float(storm_cfg.get("distance_km", 0.0)),
+            auto_backfill_max_days=int(storm_cfg.get("auto_backfill_max_days", 0) or 0),
+            auto_backfill_step_days=int(storm_cfg.get("auto_backfill_step_days", 1) or 1),
+            auto_backfill_directions=backfill_dirs,
         )
+        events = selection.events
+        post_from = selection.window_start
+        post_to = selection.window_end
+        if selection.shift_days:
+            LOGGER.info(
+                "Storm filter auto-adjusted post window by %+d days to %s–%s",
+                selection.shift_days,
+                post_from,
+                post_to,
+            )
         export_path = storm_cfg.get("export_geojson")
         if export_path:
             storm_filter.export_events(events, Path(export_path))
         if events.empty:
             LOGGER.info(
                 "Storm filter found no qualifying events between %s and %s; skipping",
-                post_from,
-                post_to,
+                selection.window_start,
+                selection.window_end,
             )
             _write_empty_outputs(
                 Path("docs/data/changes.geojson"), Path("docs/data/changes.kml")
@@ -103,13 +182,13 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
     LOGGER.info(
         "Searching Sentinel-2 %s imagery between %s and %s",
         "post-event",
-        cfg["post_from"],
-        cfg["post_to"],
+        post_from.isoformat(),
+        post_to.isoformat(),
     )
     post_items, post_from_str, post_to_str = fetch_stack.search_sentinel2_with_fallback(
         aoi,
-        cfg["post_from"],
-        cfg["post_to"],
+        post_from.isoformat(),
+        post_to.isoformat(),
         catalogs,
         max_expansion_days=expand_days,
         step_days=expand_step,

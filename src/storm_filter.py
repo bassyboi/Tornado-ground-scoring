@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Sequence
+from typing import Iterable, Sequence
 
 import geopandas as gpd
 import pandas as pd
@@ -23,6 +23,16 @@ class CatalogSchema:
     hazard_column: str = "hazard"
     latitude_column: str = "latitude"
     longitude_column: str = "longitude"
+
+
+@dataclass
+class EventWindow:
+    """Container describing the selected storm-event window."""
+
+    events: gpd.GeoDataFrame
+    window_start: date
+    window_end: date
+    shift_days: int = 0
 
 
 def load_catalog(path: Path, schema: CatalogSchema) -> gpd.GeoDataFrame:
@@ -126,6 +136,98 @@ def relevant_events(
     aoi_geom = _buffer_aoi(aoi, distance_km)
     mask_geom = filtered.geometry.within(aoi_geom)
     return filtered.loc[mask_geom].reset_index(drop=True)
+
+
+def resolve_event_window(
+    *,
+    catalog: gpd.GeoDataFrame,
+    aoi: gpd.GeoDataFrame,
+    window_start: date,
+    window_end: date,
+    hazards: Sequence[str] | None,
+    days_before: int,
+    days_after: int,
+    distance_km: float,
+    auto_backfill_max_days: int = 0,
+    auto_backfill_step_days: int = 1,
+    auto_backfill_directions: Iterable[str] | str | None = None,
+) -> EventWindow:
+    """Return the first window with qualifying events, expanding if needed.
+
+    The search begins with ``window_start``/``window_end``. When the filtered
+    catalog is empty and ``auto_backfill_max_days`` is greater than zero, the
+    function shifts the window by ``auto_backfill_step_days`` (in days) in the
+    requested directions until it finds qualifying events or exhausts the
+    search distance. The returned :class:`EventWindow` captures the discovered
+    events, the resolved window bounds, and the signed day shift applied.
+    """
+
+    resolved_directions = _normalize_backfill_directions(auto_backfill_directions)
+    max_days = max(int(auto_backfill_max_days or 0), 0)
+    step_days = max(int(auto_backfill_step_days or 1), 1)
+
+    # Always test the base window first.
+    candidate_offsets = [0]
+    if max_days > 0:
+        for delta in range(step_days, max_days + 1, step_days):
+            if "backward" in resolved_directions:
+                candidate_offsets.append(-delta)
+            if "forward" in resolved_directions:
+                candidate_offsets.append(delta)
+
+    for offset in candidate_offsets:
+        attempt_start = window_start + timedelta(days=offset)
+        attempt_end = window_end + timedelta(days=offset)
+        events = relevant_events(
+            catalog=catalog,
+            aoi=aoi,
+            window_start=attempt_start,
+            window_end=attempt_end,
+            hazards=hazards,
+            days_before=days_before,
+            days_after=days_after,
+            distance_km=distance_km,
+        )
+        if not events.empty:
+            return EventWindow(
+                events=events,
+                window_start=attempt_start,
+                window_end=attempt_end,
+                shift_days=offset,
+            )
+
+    empty = catalog.iloc[0:0].copy()
+    return EventWindow(
+        events=empty,
+        window_start=window_start,
+        window_end=window_end,
+        shift_days=0,
+    )
+
+
+def _normalize_backfill_directions(
+    directions: Iterable[str] | str | None,
+) -> set[str]:
+    """Return a validated set of backfill directions."""
+
+    if directions is None:
+        return {"backward"}
+    if isinstance(directions, str):
+        candidates = [directions]
+    else:
+        candidates = list(directions)
+
+    normalized = {value.strip().lower() for value in candidates if value}
+    if not normalized:
+        return {"backward"}
+    if "both" in normalized:
+        return {"backward", "forward"}
+
+    valid = {"backward", "forward"}
+    invalid = normalized - valid
+    if invalid:
+        raise ValueError(f"Invalid auto_backfill_directions: {sorted(invalid)}")
+    return normalized
 
 
 def _buffer_aoi(aoi: gpd.GeoDataFrame, distance_km: float):

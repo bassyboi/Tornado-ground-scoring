@@ -38,4 +38,18 @@ storm_filter:
   distance_km: 50
   days_before: 0
   days_after: 1
+  auto_backfill_max_days: 7
+  auto_backfill_step_days: 1
+  auto_backfill_directions:
+    - backward
+    - forward
   export_geojson: docs/data/storm_events.geojson
+  scrape:
+    provider: iem_lsr
+    lookback_days: 7
+    lookahead_days: 1
+    bbox_buffer_km: 25
+    hazards:
+      - Tornado
+    export_csv: data/storm_reports_scraped.csv
+    metadata_path: data/storm_reports_scrape.json
