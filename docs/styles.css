@@ -25,6 +25,47 @@ main {
   position: relative;
 }
 
+.context-control {
+  padding: 0.4rem;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border: none;
+}
+
+.context-control .context-button {
+  background: #f1f4f8;
+  color: #1f2d3d;
+  border: none;
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.context-control .context-button:hover:not(:disabled) {
+  background: #dce6f5;
+}
+
+.context-control .context-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #e8edf3;
+  color: #7c8ba0;
+  box-shadow: none;
+}
+
+.context-control .context-button.is-active {
+  background: linear-gradient(135deg, #1b9aaa, #21bf73);
+  color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(27, 154, 170, 0.25);
+}
+
 #map .map-empty {
   position: absolute;
   top: 50%;
