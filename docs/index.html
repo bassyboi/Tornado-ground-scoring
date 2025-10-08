@@ -194,6 +194,27 @@
               ${timestamp ? `<p>${timestamp}</p>` : ''}
               ${details}
             `);
+
+            const labelParts = [];
+            if (props.hazard) {
+              labelParts.push(props.hazard);
+            }
+            if (props.event_time_utc) {
+              const timeString = new Date(props.event_time_utc).toLocaleString();
+              labelParts.push(timeString);
+            }
+            if (props.details) {
+              labelParts.push(props.details);
+            }
+
+            if (labelParts.length) {
+              layer.bindTooltip(labelParts.join(' • '), {
+                permanent: true,
+                direction: 'top',
+                offset: [0, -10],
+                className: 'storm-tooltip'
+              });
+            }
           }
         }).addTo(map);
 
