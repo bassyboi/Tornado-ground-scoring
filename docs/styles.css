@@ -151,3 +151,19 @@ main {
   border: 1px solid #a4161a;
   display: inline-block;
 }
+
+.leaflet-tooltip.storm-tooltip {
+  background: rgba(255, 255, 255, 0.92);
+  color: #1f2d3d;
+  border: 1px solid rgba(164, 22, 26, 0.6);
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.35rem 0.55rem;
+  text-align: center;
+}
+
+.leaflet-tooltip-top.storm-tooltip::before {
+  border-top-color: rgba(164, 22, 26, 0.6);
+}
