@@ -1,51 +1,22 @@
 {
-  "generated_at": "2024-01-12T00:00:00Z",
+  "generated_at": null,
   "scoring": {
-    "components": {
-      "d_ndvi": {
-        "label": "Vegetation loss (ΔNDVI)",
-        "weight": 0.6,
-        "active": true
-      },
-      "d_brightness": {
-        "label": "Brightness increase",
-        "weight": 0.3,
-        "active": true
-      },
-      "s1_logratio": {
-        "label": "Sentinel-1 GRD log-ratio magnitude",
-        "weight": 0.1,
-        "active": false
-      }
-    },
+    "components": {},
     "sentinel1_enabled": false
   },
-  "threshold": {
-    "method": "otsu",
-    "value": 0.37
-  },
+  "threshold": {},
   "gss": {
-    "breaks_config": "quantile",
-    "resolved_thresholds": [
-      0.25,
-      0.4,
-      0.55,
-      0.7,
-      0.85
-    ],
-    "counts": {
-      "0": 0,
-      "1": 1,
-      "2": 1,
-      "3": 1,
-      "4": 0,
-      "5": 0
-    }
+    "breaks_config": null,
+    "resolved_thresholds": [],
+    "counts": {}
   },
   "polygons": {
-    "count": 3,
-    "mean_score_min": 0.31,
-    "mean_score_max": 0.72,
-    "total_area_m2": 648000.0
+    "count": 0,
+    "mean_score_min": null,
+    "mean_score_max": null,
+    "total_area_m2": 0
+  },
+  "metadata": {
+    "note": "Scoring statistics will be populated with live results after the next successful pipeline run."
   }
 }
