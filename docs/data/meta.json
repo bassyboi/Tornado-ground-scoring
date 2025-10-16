@@ -1,0 +1,15 @@
+{
+  "generated_at": null,
+  "pre_window": [],
+  "post_window": [],
+  "weights": {"ndvi": 0.7, "brightness": 0.3},
+  "threshold": "otsu",
+  "stac": {},
+  "webmap": {
+    "title": "Tornado Ground-Scour (Demo)",
+    "description": "ΔNDVI + Δbrightness from Sentinel-2; Otsu-threshold polygons.",
+    "center": [-27.95, 151.55],
+    "zoom": 9
+  },
+  "polygons": {"count": 0}
+}

@@ -1,54 +1,19 @@
-aoi_geojson: data/aoi_example.geojson
+aoi_path: data/aoi_demo.geojson
+stac:
+  catalogs:
+    - "https://planetarycomputer.microsoft.com/api/stac/v1"
+    - "https://earth-search.aws.element84.com/v1"
+pre_from: "2024-01-01"
+pre_to: "2024-01-25"
+post_from: "2024-02-01"
+post_to: "2024-02-25"
 stack_epsg: 3577
-pre_from: "2023-04-01"
-pre_to: "2023-04-10"
-post_from: "2023-04-15"
-post_to: "2023-04-24"
-stac_catalogs:
-  - "https://earth-search.aws.element84.com/v1"
-use_sentinel2: true
-use_sentinel1_grd: false
-search:
-  auto_expand_max_days: 10
-  auto_expand_step_days: 2
 weights:
-  d_ndvi: 0.6
-  d_brightness: 0.3
-  s1_logratio: 0.1
+  ndvi: 0.7
+  brightness: 0.3
 threshold: "otsu"
-min_blob_area_m2: 500
-elongation_filter: true
-preferred_track_bearing_deg: 120
-gss:
-  breaks: "quantile"
-web:
-  title: "Ground Scour Map"
-  description: "Auto-built from Sentinel pre/post windows."
-  center: [-27.6, 152.0]
+webmap:
+  title: "Tornado Ground-Scour (Demo)"
+  description: "ΔNDVI + Δbrightness from Sentinel-2; Otsu-threshold polygons."
+  center: [-27.95, 151.55]
   zoom: 9
-storm_filter:
-  enabled: true
-  datetime_column: event_time_utc
-  hazard_column: hazard
-  latitude_column: latitude
-  longitude_column: longitude
-  hazards:
-    - Tornado
-  distance_km: 50
-  days_before: 0
-  days_after: 1
-  auto_backfill_max_days: auto
-  auto_backfill_step_days: 1
-  auto_backfill_directions:
-    - backward
-    - forward
-  export_geojson: docs/data/storm_events.geojson
-  scrape:
-    provider: bom_warnings
-    lookback_days: 7
-    lookahead_days: 1
-    bbox_buffer_km: 25
-    hazards:
-      - Tornado
-    export_csv: data/storm_reports_scraped.csv
-    metadata_path: data/storm_reports_scrape.json
