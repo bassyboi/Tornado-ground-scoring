@@ -17,10 +17,21 @@ weights:
   s1_logratio: 0.1
 threshold: "otsu"
 min_blob_area_m2: 500
-elongation_filter: true
-preferred_track_bearing_deg: 120
-gss:
-  breaks: "quantile"
+filters:
+  min_area_m2: 500
+  min_elongation: 2.5
+  max_compactness: 0.35
+  min_score_mean: 0.55
+  min_hole_area: 200
+score_rules:
+  e2_elongation: 4.0
+  e2_min_length_m: 150
+  ndvi_loss: -0.12
+  bright_increase: 0.06
+  max_compactness_for_bonus: 0.25
+  align_tol_deg: 20
+webmap:
+  palette: ["#d0d0d0", "#9ecae1", "#6baed6", "#4292c6", "#2171b5", "#084594"]
 web:
   title: "Ground Scour Map"
   description: "Auto-built from Sentinel pre/post windows."

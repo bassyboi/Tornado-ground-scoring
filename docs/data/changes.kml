@@ -1,0 +1,66 @@
+<?xml version="1.0" ?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Ground Scour Change</name>
+    <Style id="gss-0">
+      <LineStyle>
+        <color>ff333333</color>
+        <width>1</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>99d0d0d0</color>
+        <outline>1</outline>
+      </PolyStyle>
+    </Style>
+    <Style id="gss-1">
+      <LineStyle>
+        <color>ff333333</color>
+        <width>1</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>99e1ca9e</color>
+        <outline>1</outline>
+      </PolyStyle>
+    </Style>
+    <Style id="gss-2">
+      <LineStyle>
+        <color>ff333333</color>
+        <width>1</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>99d6ae6b</color>
+        <outline>1</outline>
+      </PolyStyle>
+    </Style>
+    <Style id="gss-3">
+      <LineStyle>
+        <color>ff333333</color>
+        <width>1</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>99c69242</color>
+        <outline>1</outline>
+      </PolyStyle>
+    </Style>
+    <Style id="gss-4">
+      <LineStyle>
+        <color>ff333333</color>
+        <width>1</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>99b57121</color>
+        <outline>1</outline>
+      </PolyStyle>
+    </Style>
+    <Style id="gss-5">
+      <LineStyle>
+        <color>ff333333</color>
+        <width>1</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>99944508</color>
+        <outline>1</outline>
+      </PolyStyle>
+    </Style>
+  </Document>
+</kml>

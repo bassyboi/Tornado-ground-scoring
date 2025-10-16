@@ -275,6 +275,47 @@
       persistViewState();
     });
 
+    let summaryData = null;
+    let palette = ["#d0d0d0", "#9ecae1", "#6baed6", "#4292c6", "#2171b5", "#084594"];
+
+    const infoControl = L.control({ position: 'topright' });
+    infoControl.onAdd = function () {
+      const div = L.DomUtil.create('div', 'info-control');
+      L.DomEvent.disableClickPropagation(div);
+      this._div = div;
+      this.update();
+      return div;
+    };
+    infoControl.update = function (data = summaryData) {
+      const div = this._div;
+      if (!div) return;
+      if (!data || !Number(data.total)) {
+        div.innerHTML = '<h3>Ground Scour</h3><p>No detections after filters.</p>';
+        return;
+      }
+      const meanElong = data.mean_elongation != null && isFinite(data.mean_elongation)
+        ? Number(data.mean_elongation).toFixed(2)
+        : 'n/a';
+      const bearingCluster = data.bearing_cluster_deg != null && isFinite(data.bearing_cluster_deg)
+        ? `${Number(data.bearing_cluster_deg).toFixed(1)}°`
+        : 'n/a';
+      const rows = [];
+      for (let i = 0; i <= 5; i++) {
+        const count = data.per_gss?.[String(i)] ?? 0;
+        rows.push(`<tr><th>GSS ${i}</th><td>${count}</td></tr>`);
+      }
+      div.innerHTML = `
+        <h3>Ground Scour</h3>
+        <p>Total polygons: <strong>${data.total}</strong></p>
+        <p>Mean elongation: <strong>${meanElong}</strong></p>
+        <p>Bearing cluster: <strong>${bearingCluster}</strong></p>
+        <table class="info-counts">
+          <tbody>${rows.join('')}</tbody>
+        </table>
+      `;
+    };
+    infoControl.addTo(map);
+
     function showEmptyState(message) {
       let banner = document.querySelector('#map .map-empty');
       if (!banner) {
@@ -292,42 +333,68 @@
       }
     }
 
-    const colors = {
-      0: '#f7fbff',
-      1: '#c6dbef',
-      2: '#9ecae1',
-      3: '#6baed6',
-      4: '#3182bd',
-      5: '#08519c'
-    };
+    function colorForGss(value) {
+      const idx = Number.isFinite(Number(value)) ? Number(value) : 0;
+      const clamped = Math.max(0, Math.min(palette.length - 1, idx));
+      return palette[clamped] || '#cccccc';
+    }
 
     function style(feature) {
-      const gss = feature.properties?.gss ?? 0;
+      const gss = Number(feature.properties?.gss ?? 0);
       return {
         color: '#333',
         weight: 1,
-        fillColor: colors[gss] || '#cccccc',
+        fillColor: colorForGss(gss),
         fillOpacity: 0.6
       };
     }
 
-    fetch('data/changes.geojson')
+    function bindPopup(feature, layer) {
+      const props = feature.properties || {};
+      const rows = [];
+      const mapping = [
+        ['GSS', props.gss != null ? props.gss : '0'],
+        ['Elongation', props.elongation != null ? Number(props.elongation).toFixed(2) : 'n/a'],
+        ['Length', props.length_m != null ? `${Number(props.length_m).toFixed(0)} m` : 'n/a'],
+        ['Width', props.width_m != null ? `${Number(props.width_m).toFixed(0)} m` : 'n/a'],
+        ['Bearing', props.bearing_deg != null ? `${Number(props.bearing_deg).toFixed(1)}°` : 'n/a'],
+        ['Change score', props.change_score_mean != null ? Number(props.change_score_mean).toFixed(3) : 'n/a'],
+        ['ΔNDVI', props.delta_ndvi_mean != null ? Number(props.delta_ndvi_mean).toFixed(3) : 'n/a'],
+        ['Δbrightness', props.delta_brightness_mean != null ? Number(props.delta_brightness_mean).toFixed(3) : 'n/a'],
+        ['Area', props.area_m2 != null ? `${Number(props.area_m2).toFixed(0)} m²` : 'n/a']
+      ];
+      mapping.forEach(([label, value]) => {
+        rows.push(`<tr><th>${label}</th><td>${value}</td></tr>`);
+      });
+      const explain = props.gss_explain ? `<p class="popup-explain">${props.gss_explain}</p>` : '';
+      layer.bindPopup(`
+        <div class="popup-content">
+          <h3>GSS ${props.gss ?? 0}</h3>
+          <table class="popup-table">${rows.join('')}</table>
+          ${explain}
+        </div>
+      `);
+    }
+
+    function loadPolygons() {
+      return fetch('data/changes_scored.geojson')
       .then(resp => {
         if (!resp.ok) {
-          throw new Error(`Failed to fetch changes.geojson: ${resp.status}`);
+          throw new Error(`Failed to fetch changes_scored.geojson: ${resp.status}`);
         }
         return resp.json();
       })
       .then(data => {
         const features = Array.isArray(data.features) ? data.features : [];
         if (!features.length) {
-          showEmptyState('No change polygons were published for the latest run.');
+          showEmptyState('No detections after filters.');
+          infoControl.update();
           buildLegend();
           maybeApplyInitialView();
           return;
         }
         clearEmptyState();
-        const layer = L.geoJSON(data, { style }).addTo(map);
+        const layer = L.geoJSON(data, { style, onEachFeature: bindPopup }).addTo(map);
         const bounds = layer.getBounds();
         if (bounds.isValid()) {
           scarBounds = L.latLngBounds(bounds);
@@ -348,13 +415,16 @@
           fitToBounds(bounds);
         }
         buildLegend();
+        infoControl.update();
       })
       .catch(err => {
         console.error('Failed to load GeoJSON', err);
         showEmptyState('Change layer unavailable. Latest run did not produce any map features.');
         buildLegend();
         maybeApplyInitialView();
+        infoControl.update();
       });
+    }
 
     function buildLegend() {
       const legend = document.getElementById('legend');
@@ -362,7 +432,12 @@
       for (let i = 0; i <= 5; i++) {
         const row = document.createElement('div');
         row.className = 'legend-row';
-        row.innerHTML = `<span class="swatch" style="background:${colors[i]}"></span> GSS ${i}`;
+        const count = summaryData?.per_gss?.[String(i)] ?? 0;
+        row.innerHTML = `
+          <span class="swatch" style="background:${colorForGss(i)}"></span>
+          <span class="legend-label">GSS ${i}</span>
+          <span class="legend-count">${count}</span>
+        `;
         legend.appendChild(row);
       }
       if (stormEventCount > 0) {
@@ -378,6 +453,80 @@
         `;
         legend.appendChild(stormRow);
       }
+    }
+
+    function renderSummary(data) {
+      summaryData = data;
+      if (data?.webmap_palette && Array.isArray(data.webmap_palette)) {
+        const paletteArray = data.webmap_palette.filter(Boolean);
+        if (paletteArray.length) {
+          palette = paletteArray.slice(0, 6);
+          while (palette.length < 6) {
+            palette.push('#d0d0d0');
+          }
+        }
+      }
+      if (data?.title) {
+        const headerTitle = document.querySelector('header h1');
+        if (headerTitle) headerTitle.textContent = data.title;
+      }
+      if (data?.description) {
+        const headerDesc = document.querySelector('header p');
+        if (headerDesc) headerDesc.textContent = data.description;
+      }
+      infoControl.update(data);
+      buildLegend();
+
+      const container = document.getElementById('scoring-doc');
+      if (!data) {
+        container.innerHTML = '<h2>Summary</h2><p>Summary metadata not available.</p>';
+        return;
+      }
+
+      const generated = data.generated_at
+        ? new Date(data.generated_at).toLocaleString()
+        : 'Unknown';
+      const hash = data.config_hash || 'n/a';
+      const perGssRows = [];
+      for (let i = 0; i <= 5; i++) {
+        const count = data.per_gss?.[String(i)] ?? 0;
+        perGssRows.push(`<tr><th>GSS ${i}</th><td>${count}</td></tr>`);
+      }
+      const filtersList = Object.entries(data.filters || {})
+        .map(([key, value]) => `<li><code>${key}</code>: ${Number(value).toFixed(3)}</li>`)
+        .join('');
+      const rulesList = Object.entries(data.score_rules || {})
+        .map(([key, value]) => `<li><code>${key}</code>: ${Number(value).toFixed(3)}</li>`)
+        .join('');
+      const timestamps = data.timestamps || {};
+      const started = timestamps.started ? new Date(timestamps.started).toLocaleString() : 'n/a';
+      const finished = timestamps.finished ? new Date(timestamps.finished).toLocaleString() : 'n/a';
+
+      container.innerHTML = `
+        <h2>Summary</h2>
+        <p class="timestamp">Generated ${generated}</p>
+        <section>
+          <h3>Run details</h3>
+          <p>Config hash: <code>${hash}</code></p>
+          <p>Started: ${started}</p>
+          <p>Finished: ${finished}</p>
+        </section>
+        <section>
+          <h3>Polygon counts</h3>
+          <p>Total polygons: <strong>${data.total}</strong> (input ${data.total_input ?? 0})</p>
+          <table class="counts">
+            <tbody>${perGssRows.join('')}</tbody>
+          </table>
+        </section>
+        <section>
+          <h3>Filters</h3>
+          <ul class="bullets">${filtersList || '<li>None reported.</li>'}</ul>
+        </section>
+        <section>
+          <h3>Scoring rules</h3>
+          <ul class="bullets">${rulesList || '<li>None reported.</li>'}</ul>
+        </section>
+      `;
     }
 
     function fitToBounds(newBounds) {
@@ -470,94 +619,22 @@
         console.warn('Storm events layer unavailable', err);
       });
 
-    function renderScoring(metadata) {
-      const container = document.getElementById('scoring-doc');
-      if (!metadata || !metadata.scoring) {
-        container.innerHTML = '<h2>Scoring Overview</h2><p>Scoring metadata not available.</p>';
-        return;
-      }
-
-      const generated = metadata.generated_at
-        ? new Date(metadata.generated_at).toLocaleString()
-        : 'Unknown';
-
-      const components = metadata.scoring.components || {};
-      const componentItems = Object.entries(components)
-        .map(([key, info]) => {
-          const label = info.label || key;
-          const weight = typeof info.weight === 'number' ? info.weight.toFixed(2) : 'n/a';
-          const status = info.active === false ? ' (inactive)' : '';
-          return `<li><strong>${label}</strong> — weight ${weight}${status}</li>`;
-        })
-        .join('');
-
-      const sentinelComponent = components['s1_logratio'] || {};
-      const sentinel1Status = sentinelComponent.active
-        ? 'Sentinel-1 weighting is enabled.'
-        : 'Sentinel-1 weighting is disabled.';
-
-      const thresholds = metadata.gss?.resolved_thresholds || [];
-      const thresholdList = thresholds
-        .map((value, idx) => `<li>Break ${idx + 1}: ${value.toFixed(3)}</li>`)
-        .join('');
-
-      const gssCounts = metadata.gss?.counts || {};
-      const countRows = Object.entries(gssCounts)
-        .map(([level, count]) => `<tr><th>GSS ${level}</th><td>${count}</td></tr>`)
-        .join('');
-
-      const meanMin = metadata.polygons?.mean_score_min;
-      const meanMax = metadata.polygons?.mean_score_max;
-      const meanRangeText =
-        meanMin != null && meanMax != null
-          ? `${Number(meanMin).toFixed(3)} – ${Number(meanMax).toFixed(3)}`
-          : 'n/a';
-
-      const totalArea = metadata.polygons?.total_area_m2;
-      const totalAreaText =
-        typeof totalArea === 'number'
-          ? `${(totalArea / 1e6).toFixed(2)} km²`
-          : 'n/a';
-
-      container.innerHTML = `
-        <h2>Scoring Overview</h2>
-        <p class="timestamp">Generated ${generated}</p>
-        <section>
-          <h3>Components</h3>
-          <ul class="bullets">${componentItems || '<li>No components reported.</li>'}</ul>
-          <p class="note">${sentinel1Status}</p>
-        </section>
-        <section>
-          <h3>Thresholding</h3>
-          <p>Method: <strong>${metadata.threshold?.method || 'n/a'}</strong>${
-            metadata.threshold?.value != null
-              ? ` (cutoff ${Number(metadata.threshold.value).toFixed(3)})`
-              : ''
-          }</p>
-        </section>
-        <section>
-          <h3>Ground-Scour Score breaks</h3>
-          <ul class="bullets">${thresholdList || '<li>No thresholds reported.</li>'}</ul>
-          <table class="counts">
-            <caption>Polygon counts by GSS</caption>
-            <tbody>${countRows}</tbody>
-          </table>
-        </section>
-        <section>
-          <h3>Polygon summary</h3>
-          <p>Total polygons: <strong>${metadata.polygons?.count ?? 0}</strong></p>
-          <p>Total mapped area: <strong>${totalAreaText}</strong></p>
-          <p>Mean score range: <strong>${meanRangeText}</strong></p>
-        </section>
-      `;
-    }
-
-    fetch('data/scoring.json')
-      .then(resp => resp.json())
-      .then(renderScoring)
-      .catch(() => {
-        const container = document.getElementById('scoring-doc');
-        container.innerHTML = '<h2>Scoring Overview</h2><p>Scoring metadata not available.</p>';
+    fetch('data/summary.json')
+      .then(resp => {
+        if (!resp.ok) {
+          throw new Error(`Failed to fetch summary.json: ${resp.status}`);
+        }
+        return resp.json();
+      })
+      .then(data => {
+        renderSummary(data);
+      })
+      .catch(err => {
+        console.warn('Summary metadata not available', err);
+        renderSummary(null);
+      })
+      .finally(() => {
+        loadPolygons();
       });
   </script>
 </body>
