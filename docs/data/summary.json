@@ -1,0 +1,27 @@
+{
+  "generated_at": "1970-01-01T00:00:00Z",
+  "config_hash": "0000000000000000",
+  "title": "Ground Scour Map",
+  "description": "Auto-built from Sentinel pre/post windows.",
+  "timestamps": {
+    "started": "1970-01-01T00:00:00Z",
+    "finished": "1970-01-01T00:00:00Z"
+  },
+  "total": 0,
+  "total_input": 0,
+  "per_gss": {
+    "0": 0,
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0,
+    "5": 0
+  },
+  "bearing_cluster_deg": null,
+  "mean_elongation": null,
+  "filters": {},
+  "score_rules": {},
+  "webmap_palette": ["#d0d0d0", "#9ecae1", "#6baed6", "#4292c6", "#2171b5", "#084594"],
+  "threshold_method": null,
+  "threshold_value": null
+}

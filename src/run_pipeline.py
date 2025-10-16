@@ -1,11 +1,12 @@
 """End-to-end pipeline CLI."""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
@@ -14,10 +15,8 @@ import geopandas as gpd
 import numpy as np
 import xarray as xr
 import yaml
-from rasterio import features
-from shapely.geometry import mapping
 
-from . import change_core, fetch_stack, gss, storm_filter, storm_reports
+from . import change_core, fetch_stack, features, scoring, storm_filter, storm_reports
 from .aoi_utils import load_aoi
 
 LOGGER = logging.getLogger(__name__)
@@ -33,7 +32,9 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
     """Run the ground-scour mapping pipeline."""
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    cfg = _load_config(Path(config_path))
+    cfg_path = Path(config_path)
+    cfg = _load_config(cfg_path)
+    run_started = datetime.utcnow().replace(microsecond=0)
 
     aoi = load_aoi(cfg["aoi_geojson"])
     catalogs = cfg.get("stac_catalogs", [])
@@ -195,9 +196,33 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
                 selection.window_start,
                 selection.window_end,
             )
+            palette = _resolve_palette(cfg.get("webmap", {}).get("palette"))
             _write_empty_outputs(
-                Path("docs/data/changes.geojson"), Path("docs/data/changes.kml")
+                Path("docs/data/changes.geojson"),
+                Path("docs/data/changes.kml"),
+                palette,
             )
+            empty_summary = {
+                "generated_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+                "config_hash": _config_hash(cfg_path),
+                "title": cfg.get("web", {}).get("title", "Ground Scour Map"),
+                "description": cfg.get("web", {}).get(
+                    "description", "Auto-built from Sentinel pre/post windows."
+                ),
+                "timestamps": {
+                    "started": run_started.isoformat() + "Z",
+                    "finished": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+                },
+                "total": 0,
+                "total_input": 0,
+                "per_gss": {str(level): 0 for level in range(6)},
+                "bearing_cluster_deg": None,
+                "mean_elongation": None,
+                "filters": {},
+                "score_rules": {},
+                "webmap_palette": palette,
+            }
+            _write_summary(Path("docs/data/summary.json"), empty_summary)
             click.echo("No storm events in window; outputs cleared.")
             return
         LOGGER.info("Storm filter retained %s events", len(events))
@@ -235,6 +260,14 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
     LOGGER.info("Building Sentinel-2 mosaics")
     pre_mosaic = fetch_stack.mosaic_s2(pre_items, S2_BANDS, aoi, target_epsg=stack_epsg_int)
     post_mosaic = fetch_stack.mosaic_s2(post_items, S2_BANDS, aoi, target_epsg=stack_epsg_int)
+
+    pre_path = Path("artifacts/pre_mosaic.tif")
+    post_path = Path("artifacts/post_mosaic.tif")
+    _ensure_directory(pre_path.parent)
+    LOGGER.info("Writing pre-event mosaic to %s", pre_path)
+    _save_dataarray(pre_mosaic.astype(np.float32), pre_path)
+    LOGGER.info("Writing post-event mosaic to %s", post_path)
+    _save_dataarray(post_mosaic.astype(np.float32), post_path)
 
     LOGGER.info("Computing change score")
     score = change_core.change_score_s2(pre_mosaic, post_mosaic, cfg.get("weights", {}))
@@ -295,54 +328,68 @@ def main(config_path: str, export_csv: Optional[str]) -> None:
     polygons = change_core.polygons_from_mask(mask, cfg.get("min_blob_area_m2", 500.0))
     polygons = polygons.reset_index(drop=True)
 
-    gss_cfg = cfg.get("gss", {})
-    gss_breaks = gss_cfg.get("breaks", "quantile")
+    filters_cfg = cfg.get("filters", {})
+    webmap_cfg = cfg.get("webmap", {})
+    palette = _resolve_palette(webmap_cfg.get("palette"))
 
-    if not polygons.empty:
-        polygons = _attach_polygon_stats(polygons, score)
-        polygons["bearing_deg"] = polygons.geometry.apply(gss.major_axis_orientation)
-        polygons["elongation_ratio"] = polygons.geometry.apply(gss.elongation_ratio)
-        if cfg.get("elongation_filter", False):
-            tol = cfg.get("elongation_tolerance_deg", 30.0)
-            min_ratio = cfg.get("elongation_min_ratio", 2.0)
-            polygons = gss.apply_elongation_filter(
-                polygons,
-                preferred_bearing=cfg.get("preferred_track_bearing_deg", 0.0),
-                ang_tol=tol,
-                min_ratio=min_ratio,
-            )
-            polygons = polygons.reset_index(drop=True)
-        gss_thresholds = gss.resolve_gss_thresholds(polygons["mean_score"].values, breaks=gss_breaks)
-        polygons["gss"] = gss.score_to_gss(polygons["mean_score"].values, breaks=gss_breaks)
-    else:
-        polygons["mean_score"] = []
-        polygons["max_score"] = []
-        polygons["gss"] = []
-        polygons["bearing_deg"] = []
-        polygons["elongation_ratio"] = []
-        gss_thresholds = gss.resolve_gss_thresholds([], breaks=gss_breaks)
+    target_epsg = stack_epsg_int or pre_mosaic.rio.crs.to_epsg()
+    if target_epsg is None:
+        raise ValueError("Unable to resolve target EPSG for feature extraction")
 
-    geojson_path = Path("docs/data/changes.geojson")
-    _ensure_directory(geojson_path.parent)
-    LOGGER.info("Writing change polygons to %s", geojson_path)
-    _write_geojson(polygons, geojson_path)
-    _write_kml(polygons, Path("docs/data/changes.kml"))
-
-    scoring_metadata_path = Path("docs/data/scoring.json")
-    LOGGER.info("Writing scoring metadata to %s", scoring_metadata_path)
-    _write_scoring_metadata(
-        scoring_metadata_path,
-        cfg=cfg,
-        gss_breaks=gss_breaks,
-        gss_thresholds=gss_thresholds,
-        polygons=polygons,
-        threshold_method=threshold_method,
-        threshold_value=threshold_value,
+    min_hole_area = float(filters_cfg.get("min_hole_area", 0.0) or 0.0)
+    LOGGER.info("Computing polygon features")
+    features_gdf = features.extract(
+        polygons,
+        target_epsg=int(target_epsg),
+        pre_path=pre_path,
+        post_path=post_path,
+        change_path=score_path,
+        min_hole_area=min_hole_area,
     )
 
-    if export_csv and not polygons.empty:
+    LOGGER.info("Applying scoring rules")
+    scoring_result = scoring.apply(
+        features_gdf,
+        filters_cfg=filters_cfg,
+        rules_cfg=cfg.get("score_rules", {}),
+    )
+    scored_polygons = scoring_result.polygons
+    summary = scoring_result.summary
+    summary.setdefault("filters", {})["min_hole_area"] = float(min_hole_area)
+    summary.setdefault("webmap_palette", list(palette))
+    summary["threshold_method"] = threshold_method
+    summary["threshold_value"] = float(threshold_value) if np.isfinite(threshold_value) else None
+
+    features_path = Path("docs/data/changes_features.geojson")
+    scored_path = Path("docs/data/changes_scored.geojson")
+    legacy_path = Path("docs/data/changes.geojson")
+    _ensure_directory(features_path.parent)
+    LOGGER.info("Writing polygon features to %s", features_path)
+    _write_geojson(features_gdf, features_path)
+    LOGGER.info("Writing scored polygons to %s", scored_path)
+    _write_geojson(scored_polygons, scored_path)
+    # Maintain legacy output name for compatibility.
+    _write_geojson(scored_polygons, legacy_path)
+    _write_kml(scored_polygons, Path("docs/data/changes.kml"), palette)
+
+    if export_csv and not scored_polygons.empty:
         _ensure_directory(Path(export_csv).parent or Path("."))
-        polygons.drop(columns="geometry").to_csv(export_csv, index=False)
+        scored_polygons.drop(columns="geometry").to_csv(export_csv, index=False)
+
+    run_finished = datetime.utcnow().replace(microsecond=0)
+    summary["generated_at"] = run_finished.isoformat() + "Z"
+    summary["config_hash"] = _config_hash(cfg_path)
+    summary["title"] = cfg.get("web", {}).get("title", "Ground Scour Map")
+    summary["description"] = cfg.get("web", {}).get(
+        "description", "Auto-built from Sentinel pre/post windows."
+    )
+    summary["timestamps"] = {
+        "started": run_started.isoformat() + "Z",
+        "finished": run_finished.isoformat() + "Z",
+    }
+    summary_path = Path("docs/data/summary.json")
+    LOGGER.info("Writing summary to %s", summary_path)
+    _write_summary(summary_path, summary)
 
     _write_leaflet_page(Path("docs/index.html"), cfg.get("web", {}))
 
@@ -357,97 +404,35 @@ def _load_config(path: Path) -> Dict[str, Any]:
     return cfg
 
 
-def _write_scoring_metadata(
-    path: Path,
-    *,
-    cfg: Dict[str, Any],
-    gss_breaks: Any,
-    gss_thresholds: np.ndarray,
-    polygons: gpd.GeoDataFrame,
-    threshold_method: str,
-    threshold_value: float,
-) -> None:
-    """Persist a machine-readable description of the scoring configuration."""
-
-    weights_cfg = cfg.get("weights", {})
-    sentinel1_enabled = bool(cfg.get("use_sentinel1_grd"))
-    components: Dict[str, Dict[str, Any]] = {
-        "d_ndvi": {
-            "label": "Vegetation loss (ΔNDVI)",
-            "weight": float(weights_cfg.get("d_ndvi", 0.6)),
-            "active": True,
-        },
-        "d_brightness": {
-            "label": "Brightness increase",
-            "weight": float(weights_cfg.get("d_brightness", 0.3)),
-            "active": True,
-        },
-    }
-    components["s1_logratio"] = {
-        "label": "Sentinel-1 GRD log-ratio magnitude",
-        "weight": float(weights_cfg.get("s1_logratio", 0.1)),
-        "active": sentinel1_enabled,
-    }
-
-    polygon_count = int(len(polygons))
-    mean_score_min = None
-    mean_score_max = None
-    if polygon_count > 0 and "mean_score" in polygons:
-        mean_scores = polygons["mean_score"].astype(float).to_numpy()
-        finite_scores = mean_scores[np.isfinite(mean_scores)]
-        if finite_scores.size:
-            mean_score_min = float(finite_scores.min())
-            mean_score_max = float(finite_scores.max())
-
-    gss_counts: Dict[str, int] = {str(level): 0 for level in range(6)}
-    if polygon_count > 0 and "gss" in polygons:
-        for level, count in polygons["gss"].value_counts().items():
-            try:
-                gss_counts[str(int(level))] = int(count)
-            except (TypeError, ValueError):
-                continue
-
-    total_area = None
-    if polygon_count > 0 and "area_m2" in polygons:
-        total_area_value = float(polygons["area_m2"].sum())
-        if np.isfinite(total_area_value):
-            total_area = total_area_value
-
-    if isinstance(gss_breaks, str):
-        breaks_repr: Any = gss_breaks
-    else:
-        breaks_repr = [float(v) for v in gss_breaks]
-
-    metadata = {
-        "generated_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-        "scoring": {
-            "components": components,
-            "sentinel1_enabled": sentinel1_enabled,
-        },
-        "threshold": {
-            "method": threshold_method,
-            "value": float(threshold_value) if np.isfinite(threshold_value) else None,
-        },
-        "gss": {
-            "breaks_config": breaks_repr,
-            "resolved_thresholds": [float(v) for v in gss_thresholds.tolist()],
-            "counts": gss_counts,
-        },
-        "polygons": {
-            "count": polygon_count,
-            "mean_score_min": mean_score_min,
-            "mean_score_max": mean_score_max,
-            "total_area_m2": total_area,
-        },
-    }
-
-    _ensure_directory(path.parent)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2)
-
-
 def _ensure_directory(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
+
+
+def _write_summary(path: Path, summary: Dict[str, Any]) -> None:
+    _ensure_directory(path.parent)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+
+def _config_hash(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()[:16]
+
+
+def _resolve_palette(raw: Any) -> list[str]:
+    default = ["#d0d0d0", "#9ecae1", "#6baed6", "#4292c6", "#2171b5", "#084594"]
+    if isinstance(raw, (list, tuple)):
+        palette = [str(color) for color in raw if color]
+    else:
+        palette = []
+    if not palette:
+        palette = default.copy()
+    while len(palette) < 6:
+        palette.append(default[len(palette)])
+    return palette[:6]
 
 
 def _save_dataarray(arr: xr.DataArray, path: Path) -> None:
@@ -457,32 +442,6 @@ def _save_dataarray(arr: xr.DataArray, path: Path) -> None:
         arr = arr.rio.write_nodata(np.nan)
     arr.rio.to_raster(path)
     LOGGER.info("Wrote %s", path)
-
-
-def _attach_polygon_stats(polygons: gpd.GeoDataFrame, score: xr.DataArray) -> gpd.GeoDataFrame:
-    data = score.values
-    transform = score.rio.transform()
-    crs = score.rio.crs
-    means = []
-    maxs = []
-    for geom in polygons.geometry.to_crs(crs):
-        mask = features.geometry_mask([mapping(geom)], out_shape=data.shape, transform=transform, invert=True)
-        masked = np.where(mask, data, np.nan)
-        finite = np.isfinite(masked)
-        if finite.any():
-            valid = masked[finite]
-            mean_val = float(valid.mean())
-            max_val = float(valid.max())
-        else:
-            mean_val = 0.0
-            max_val = 0.0
-        means.append(mean_val)
-        maxs.append(max_val)
-    polygons = polygons.copy()
-    polygons["mean_score"] = means
-    polygons["max_score"] = maxs
-    polygons["area_m2"] = polygons.to_crs(3857).area
-    return polygons
 
 
 def _write_geojson(polygons: gpd.GeoDataFrame, path: Path) -> None:
@@ -495,15 +454,8 @@ def _write_geojson(polygons: gpd.GeoDataFrame, path: Path) -> None:
     LOGGER.info("Wrote %s", path)
 
 
-def _write_kml(polygons: gpd.GeoDataFrame, path: Path) -> None:
-    colors = {
-        0: "#f7fbff",
-        1: "#c6dbef",
-        2: "#9ecae1",
-        3: "#6baed6",
-        4: "#3182bd",
-        5: "#08519c",
-    }
+def _write_kml(polygons: gpd.GeoDataFrame, path: Path, palette: Sequence[str]) -> None:
+    colors = {idx: palette[idx] if idx < len(palette) else palette[-1] for idx in range(6)}
 
     kml = ET.Element("kml", xmlns="http://www.opengis.net/kml/2.2")
     document = ET.SubElement(kml, "Document")
@@ -525,12 +477,27 @@ def _write_kml(polygons: gpd.GeoDataFrame, path: Path) -> None:
             gss_value = int(row.get("gss", 0))
             ET.SubElement(placemark, "name").text = f"GSS {gss_value}"
             description_parts = []
-            if "mean_score" in row:
-                description_parts.append(f"Mean score: {row['mean_score']:.3f}")
-            if "max_score" in row:
-                description_parts.append(f"Max score: {row['max_score']:.3f}")
-            if "area_m2" in row:
-                description_parts.append(f"Area (ha): {row['area_m2'] / 10000:.2f}")
+            for label, key, fmt in [
+                ("Change score", "change_score_mean", "{:.3f}"),
+                ("ΔNDVI", "delta_ndvi_mean", "{:.3f}"),
+                ("Δbrightness", "delta_brightness_mean", "{:.3f}"),
+                ("Elongation", "elongation", "{:.2f}×"),
+                ("Length", "length_m", "{:.0f} m"),
+                ("Width", "width_m", "{:.0f} m"),
+                ("Area", "area_m2", "{:.2f} m²"),
+            ]:
+                value = row.get(key)
+                if value is None:
+                    continue
+                try:
+                    numeric = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if np.isfinite(numeric):
+                    description_parts.append(f"{label}: {fmt.format(numeric)}")
+            explain = row.get("gss_explain")
+            if explain:
+                description_parts.append(str(explain))
             if description_parts:
                 ET.SubElement(placemark, "description").text = "\n".join(description_parts)
             ET.SubElement(placemark, "styleUrl").text = f"#gss-{gss_value}"
@@ -587,6 +554,10 @@ def _hex_to_kml_color(hex_color: str, alpha: float) -> str:
 
 
 def _write_leaflet_page(path: Path, web_cfg: Dict[str, Any]) -> None:
+    if path.exists():
+        LOGGER.info("Web map already present at %s; skipping overwrite", path)
+        return
+
     title = web_cfg.get("title", "Ground Scour Map")
     description = web_cfg.get("description", "Auto-built from Sentinel pre/post windows.")
     center = web_cfg.get("center", [0, 0])
@@ -598,123 +569,31 @@ def _write_leaflet_page(path: Path, web_cfg: Dict[str, Any]) -> None:
   <meta charset=\"utf-8\" />
   <title>{title}</title>
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-  <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\" integrity=\"sha512-sA+q5ms5F2yZefRg2fzGEylh4G6dkprdFMn/hTyBC0bY4Z1cdq9VHtV6nRvWmvMRGsiE232zfoFM5x3Dm7G8eA==\" crossorigin=\"\" />
-  <link rel=\"stylesheet\" href=\"styles.css\" />
+  <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\" />
+  <style>
+    body {{ margin: 0; font-family: sans-serif; }}
+    #map {{ height: 90vh; }}
+  </style>
 </head>
 <body>
-  <header>
-    <h1>{title}</h1>
-    <p>{description}</p>
-  </header>
+  <h1>{title}</h1>
+  <p>{description}</p>
   <div id=\"map\"></div>
-  <div id=\"legend\"></div>
-  <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\" integrity=\"sha512-o9N1j7kG6r0s+P0LlwM651op01qmPvvrLpzjAU6Rz6U02zszbmWzxubUANkqG0x74pJ1gzhS+M4LMEnM08JdKw==\" crossorigin=\"\"></script>
+  <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>
   <script>
     const map = L.map('map').setView([{center[1]}, {center[0]}], {zoom});
-    const australianBasemap = L.tileLayer(
-      'https://services.ga.gov.au/gis/rest/services/NationalMap_Colour_Topography/MapServer/tile/{{z}}/{{y}}/{{x}}',
-      {{
-        maxZoom: 20,
-        attribution: 'Topographic Base Map © Geoscience Australia'
-      }}
-    );
-
-    const osmBasemap = L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+    L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
-    }});
-
-    australianBasemap.addTo(map);
-
-    australianBasemap.on('tileerror', () => {{
-      map.removeLayer(australianBasemap);
-      if (!map.hasLayer(osmBasemap)) {{
-        osmBasemap.addTo(map);
-      }}
-    }});
-
-    L.control.layers(
-      {{
-        'Australian Topography': australianBasemap,
-        'OpenStreetMap': osmBasemap
-      }},
-      null,
-      {{ position: 'topright' }}
-    ).addTo(map);
-
-    const mapContainer = document.getElementById('map');
-
-    function showEmptyState(message) {{
-      let banner = document.querySelector('#map .map-empty');
-      if (!banner) {{
-        banner = document.createElement('div');
-        banner.className = 'map-empty';
-        mapContainer.appendChild(banner);
-      }}
-      banner.textContent = message;
-    }}
-
-    function clearEmptyState() {{
-      const banner = document.querySelector('#map .map-empty');
-      if (banner) {{
-        banner.remove();
-      }}
-    }}
-
-    const colors = {{
-      0: '#f7fbff',
-      1: '#c6dbef',
-      2: '#9ecae1',
-      3: '#6baed6',
-      4: '#3182bd',
-      5: '#08519c'
-    }};
-
-    function style(feature) {{
-      const gss = feature.properties?.gss ?? 0;
-      return {{
-        color: '#333',
-        weight: 1,
-        fillColor: colors[gss] || '#cccccc',
-        fillOpacity: 0.6
-      }};
-    }}
-
-    fetch('data/changes.geojson')
-      .then(resp => {{
-        if (!resp.ok) {{
-          throw new Error(`Failed to fetch changes.geojson: ${{resp.status}}`);
-        }}
-        return resp.json();
-      }})
+    }}).addTo(map);
+    fetch('data/changes_scored.geojson')
+      .then(resp => resp.json())
       .then(data => {{
-        const features = Array.isArray(data.features) ? data.features : [];
-        if (!features.length) {{
-          showEmptyState('No change polygons were published for the latest run.');
-          buildLegend();
-          return;
+        const layer = L.geoJSON(data).addTo(map);
+        if (layer.getLayers().length) {{
+          map.fitBounds(layer.getBounds());
         }}
-        clearEmptyState();
-        const layer = L.geoJSON(data, {{ style }}).addTo(map);
-        map.fitBounds(layer.getBounds());
-        buildLegend();
-      }})
-      .catch(err => {{
-        console.error('Failed to load GeoJSON', err);
-        showEmptyState('Change layer unavailable. Latest run did not produce any map features.');
-        buildLegend();
       }});
-
-    function buildLegend() {{
-      const legend = document.getElementById('legend');
-      legend.innerHTML = '<h3>Ground-Scour Score</h3>';
-      for (let i = 0; i <= 5; i++) {{
-        const row = document.createElement('div');
-        row.className = 'legend-row';
-        row.innerHTML = `<span class="swatch" style="background:${{colors[i]}}"></span> GSS ${'{'}i{'}'}`;
-        legend.appendChild(row);
-      }}
-    }}
   </script>
 </body>
 </html>
@@ -722,14 +601,19 @@ def _write_leaflet_page(path: Path, web_cfg: Dict[str, Any]) -> None:
 
     with path.open("w", encoding="utf-8") as f:
         f.write(html)
-    LOGGER.info("Wrote %s", path)
+    LOGGER.info("Created default web map at %s", path)
 
 
-def _write_empty_outputs(geojson_path: Path, kml_path: Path) -> None:
+def _write_empty_outputs(
+    geojson_path: Path, kml_path: Path, palette: Sequence[str] | None = None
+) -> None:
     empty = gpd.GeoDataFrame(geometry=[], crs=4326)
     _ensure_directory(geojson_path.parent)
+    palette_list = _resolve_palette(palette) if palette is not None else _resolve_palette(None)
     _write_geojson(empty, geojson_path)
-    _write_kml(empty, kml_path)
+    _write_geojson(empty, geojson_path.parent / "changes_scored.geojson")
+    _write_geojson(empty, geojson_path.parent / "changes_features.geojson")
+    _write_kml(empty, kml_path, palette_list)
 
 
 def _parse_date(value: str) -> date:

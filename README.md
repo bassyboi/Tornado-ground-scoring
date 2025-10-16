@@ -5,7 +5,7 @@ Detect tornado-driven ground change from Sentinel imagery, score the severity, a
 ## Features
 - Fetch Sentinel-2 (and optional Sentinel-1 RTC) imagery through public STAC APIs.
 - Build median pre/post mosaics and compute a composite change score using vegetation loss, brightness increase, and SAR backscatter change.
-- Threshold the change map, filter polygons by elongation, and assign a Ground-Scour Score (GSS 0–5).
+- Extract per-polygon geometry + radiometric features (elongation, bearing, NDVI/brightness deltas) and assign an explainable Ground-Scour Score (GSS 0–5).
 - Export GeoTIFF rasters, GeoJSON polygons, and a ready-to-host Leaflet map under `docs/` for GitHub Pages.
 - Emit a Google Earth-ready KML file alongside the GeoJSON export for quick sharing.
 - Continuous integration workflow that runs the pipeline and publishes a GitHub Pages site on every push.
@@ -22,7 +22,10 @@ Detect tornado-driven ground change from Sentinel imagery, score the severity, a
    ```bash
    python -m src.run_pipeline --config data/config.yaml
    ```
-   The run will create GeoTIFFs in `artifacts/` and a `docs/data/changes.geojson` file consumed by the Leaflet app at `docs/index.html`.
+   The run will create GeoTIFFs in `artifacts/` plus three GeoJSON/JSON products under `docs/data/`:
+   - `changes_features.geojson` — polygons with geometry + raster features.
+   - `changes_scored.geojson` — polygons that passed the filters with Ground Scour Scores.
+   - `summary.json` — aggregate counts per GSS bin, mean elongation, bearing cluster, and a configuration hash.
    Add `--export-csv outputs.csv` to capture polygon statistics as a table.
    > **Live data only:** The repository ships with empty placeholder GeoJSON/JSON files under `docs/data/`. Each pipeline
    > execution overwrites them with the latest scraped storm reports, change polygons, and scoring metadata so the published map
@@ -38,10 +41,10 @@ See `data/config.yaml` for the default options:
 - **STAC search**: Provide one or more public catalog URLs. Sentinel-2 L2A is required; Sentinel-1 RTC is optional.
 - **Weights**: Tune the component weights to emphasize vegetation loss (ΔNDVI), brightness increase, or SAR log-ratio response.
 - **Threshold**: Use `"otsu"` for automatic selection or set a numeric cutoff between 0 and 1.
-- **Elongation filter**: Enable to keep polygons aligned with an expected tornado-track bearing and an elongation ratio ≥ 2.0. Optional keys `elongation_tolerance_deg` and `elongation_min_ratio` further tune the filter.
-- **GSS breaks**: Either `"quantile"` (default quintiles) or an explicit list of five monotonically increasing thresholds.
+- **Filters**: The `filters` block sets hard drop rules (minimum area, elongation, compactness, change-score mean, etc.) before scoring.
+- **Score rules**: Tune the additive Ground Scour Score bonuses (elongation, NDVI loss, brightness increase, compactness, bearing alignment).
 - **Search fallback**: The optional `search` block lets you expand the pre/post date windows when no Sentinel imagery is found. Set `auto_expand_max_days` to the maximum ± days of padding to try, and `auto_expand_step_days` to the increment between attempts.
-- **Web map**: Customize the title, description, and initial map viewpoint.
+- **Web map**: Customize the title, description, initial map viewpoint, and the six-color palette used for GSS 0–5 styling.
 - **Stack projection**: Set `stack_epsg` to the EPSG code you want mosaics resampled into. The sample configuration uses EPSG:3577 (Australian Albers) so Sentinel imagery is reprojected to metric units across the continent.
 - **Storm filter**: Optionally gate the entire run on a catalog of historical storm reports. Provide a CSV file with at least
   the event timestamp, hazard type, and coordinates. When enabled, the pipeline loads the catalog, keeps events that intersect
@@ -99,8 +102,8 @@ states or phenomena to retain:
 ```
 
 Populate the catalog with historical or forecast storm-day observations. When the post-analysis window (plus optional lead/lag
-days) contains at least one entry that falls within the AOI buffer, the full Sentinel processing pipeline runs and writes both
-GeoJSON (`docs/data/changes.geojson`) and KML (`docs/data/changes.kml`) outputs. If no storm events are found, the command
+days) contains at least one entry that falls within the AOI buffer, the full Sentinel processing pipeline runs and writes
+`docs/data/changes_features.geojson`, `docs/data/changes_scored.geojson`, `docs/data/summary.json`, and the companion KML overlay. If no storm events are found, the command
 skips the expensive remote sensing steps, clears previous change layers by writing empty GeoJSON/KML stubs, and exits with a
 message indicating that no storm day was detected. In `auto` mode the backfill search keeps extending the post window until it
 reaches the earliest/latest catalog event that also satisfies the AOI and hazard filters, so new reports are picked up as soon
@@ -114,7 +117,8 @@ beyond the AOI outline. Successful scrapes write the updated catalog to `export_
 need an offline contingency.
 
 > **Note:** The project intentionally omits offline test fixtures so the storm-report integration is always exercised against
-> live Bureau of Meteorology or IEM feeds. Run the pipeline end to end to verify configuration changes.
+> live Bureau of Meteorology or IEM feeds. Run the pipeline end to end to verify configuration changes. In firewalled environments,
+> temporarily set `storm_filter.enabled: false` (or remove the `scrape` block) to execute the imagery pipeline without triggering scrape failures.
 
 To refresh the catalog outside of the pipeline, run the standalone scraper CLI:
 
@@ -153,12 +157,12 @@ If you prefer to publish the map manually, run the pipeline locally, commit the 
 
 ### Scoring metadata export
 
-Every pipeline execution now writes a machine-readable scoring summary to `docs/data/scoring.json`. The file captures the component weights, the resolved change-score threshold, the five Ground-Scour Score breakpoints, and polygon statistics (counts, area, mean-score range). The GitHub Actions workflow publishes this file alongside the Leaflet app, so the repository always documents the scoring system used for the latest run. If you customise the configuration, rerun the pipeline to regenerate the scoring metadata before committing.
+Every pipeline execution writes a machine-readable summary to `docs/data/summary.json`. The file captures the component weights, configuration hash, per-GSS polygon counts, bearing cluster, and mean elongation. The GitHub Actions workflow publishes this file alongside the Leaflet app, so the repository always documents the scoring system used for the latest run. If you customise the configuration, rerun the pipeline to regenerate the summary before committing.
 
 ## Tuning tips
 - Tighten the pre/post acquisition windows around the event to avoid seasonal noise.
 - Increase the SAR weight and enable `use_sentinel1_grd` for debris detection over bare ground or low vegetation.
-- Adjust `min_blob_area_m2` and the elongation filter to suppress false positives from small fields or urban change.
+- Adjust `filters.min_area_m2`, `filters.min_elongation`, and `score_rules.align_tol_deg` to suppress false positives from small fields or blob-shaped change while preserving plausible tracks.
 
 ## Future work
 - Incorporate Sentinel-1 SLC coherence for finer debris detection.
