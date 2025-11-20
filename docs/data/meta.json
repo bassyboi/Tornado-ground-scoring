@@ -1,15 +1,38 @@
 {
-  "generated_at": null,
-  "pre_window": [],
-  "post_window": [],
-  "weights": {"ndvi": 0.7, "brightness": 0.3},
+  "generated_at": "2025-11-20T10:49:58.820644Z",
+  "pre_window": [
+    "2024-01-01",
+    "2024-01-25"
+  ],
+  "post_window": [
+    "2024-02-01",
+    "2024-02-25"
+  ],
+  "weights": {
+    "ndvi": 0.7,
+    "brightness": 0.3
+  },
   "threshold": "otsu",
-  "stac": {},
+  "stac": {
+    "pre": {
+      "catalog": "demo://synthetic",
+      "items": 0
+    },
+    "post": {
+      "catalog": "demo://synthetic",
+      "items": 0
+    }
+  },
   "webmap": {
     "title": "Tornado Ground-Scour (Demo)",
-    "description": "ΔNDVI + Δbrightness from Sentinel-2; Otsu-threshold polygons.",
-    "center": [-27.95, 151.55],
+    "description": "\u0394NDVI + \u0394brightness from Sentinel-2; Otsu-threshold polygons.",
+    "center": [
+      -27.95,
+      151.55
+    ],
     "zoom": 9
   },
-  "polygons": {"count": 0}
+  "polygons": {
+    "count": 1
+  }
 }
