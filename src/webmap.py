@@ -42,7 +42,7 @@ LEAFLET_TEMPLATE = """<!DOCTYPE html>
     const dataUrl = 'data/changes.geojson';
 
     const map = L.map('map');
-    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {{
+    const osm = L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19
     }});
@@ -115,5 +115,7 @@ def ensure_leaflet_page(html_path: Path, config: PipelineConfig) -> None:
     """Create or overwrite the Leaflet index page to match the configuration."""
 
     html_path.parent.mkdir(parents=True, exist_ok=True)
-    html = LEAFLET_TEMPLATE.format(title=config.webmap.title, description=config.webmap.description)
+    html = LEAFLET_TEMPLATE.replace("{title}", config.webmap.title).replace(
+        "{description}", config.webmap.description
+    )
     html_path.write_text(html)
