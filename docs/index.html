@@ -6,14 +6,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
-    body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; color: #1f2933; }
-    header { padding: 1.5rem; background: #0f172a; color: white; }
-    header h1 { margin: 0 0 0.5rem 0; font-size: 1.75rem; }
-    header p { margin: 0; max-width: 720px; line-height: 1.4; }
-    #map { height: calc(100vh - 140px); width: 100%; }
-    .legend { position: absolute; bottom: 20px; right: 20px; background: rgba(255, 255, 255, 0.92); padding: 0.75rem 1rem; border-radius: 8px; box-shadow: 0 4px 10px rgba(15, 23, 42, 0.2); }
-    .legend h3 { margin-top: 0; font-size: 1rem; margin-bottom: 0.5rem; }
-    .legend p { margin: 0; font-size: 0.85rem; }
+    body {{ margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; color: #1f2933; }}
+    header {{ padding: 1.5rem; background: #0f172a; color: white; }}
+    header h1 {{ margin: 0 0 0.5rem 0; font-size: 1.75rem; }}
+    header p {{ margin: 0; max-width: 720px; line-height: 1.4; }}
+    #map {{ height: calc(100vh - 140px); width: 100%; }}
+    .legend {{ position: absolute; bottom: 20px; right: 20px; background: rgba(255, 255, 255, 0.92); padding: 0.75rem 1rem; border-radius: 8px; box-shadow: 0 4px 10px rgba(15, 23, 42, 0.2); }}
+    .legend h3 {{ margin-top: 0; font-size: 1rem; margin-bottom: 0.5rem; }}
+    .legend p {{ margin: 0; font-size: 0.85rem; }}
   </style>
 </head>
 <body>
@@ -32,42 +32,42 @@
     const dataUrl = 'data/changes.geojson';
 
     const map = L.map('map');
-    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    const osm = L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19
-    });
+    }});
     osm.addTo(map);
 
     fetch(metaUrl)
       .then(response => response.json())
-      .then(meta => {
+      .then(meta => {{
         const center = meta.webmap?.center || [0, 0];
         const zoom = meta.webmap?.zoom || 6;
         map.setView(center, zoom);
-        return fetch(dataUrl).then(resp => resp.json()).then(data => {
-          const layer = L.geoJSON(data, {
+        return fetch(dataUrl).then(resp => resp.json()).then(data => {{
+          const layer = L.geoJSON(data, {{
             style: () => ({
               color: '#b45309',
               weight: 2,
               fillColor: '#ff7800',
               fillOpacity: 0.45
-            }),
-            onEachFeature: (feature, layer) => {
-              const props = feature.properties || {};
-              const area = props.area_m2 ? `${(props.area_m2 / 10000).toFixed(2)} ha` : 'n/a';
+            }}),
+            onEachFeature: (feature, layer) => {{
+              const props = feature.properties || {{}};
+              const area = props.area_m2 ? `${{(props.area_m2 / 10000).toFixed(2)}} ha` : 'n/a';
               const score = props.mean_score != null ? props.mean_score.toFixed(2) : 'n/a';
-              layer.bindPopup(`<strong>Change polygon</strong><br/>Area: ${area}<br/>Mean score: ${score}`);
-            }
-          });
+              layer.bindPopup(`<strong>Change polygon</strong><br/>Area: ${{area}}<br/>Mean score: ${{score}}`);
+            }}
+          }});
           layer.addTo(map);
-          if (layer.getBounds().isValid()) {
+          if (layer.getBounds().isValid()) {{
             map.fitBounds(layer.getBounds().pad(0.1));
-          }
-        });
-      })
-      .catch(error => {
+          }}
+        }});
+      }})
+      .catch(error => {{
         console.error('Failed to load change data', error);
-      });
+      }});
   </script>
 </body>
 </html>

@@ -9,8 +9,10 @@ from typing import Iterable, List, Sequence
 import numpy as np
 import stackstac
 import xarray as xr
+import rioxarray  # noqa: F401 - needed for .rio accessor
 from pystac import Item
 from pystac_client import Client
+from rasterio.transform import from_bounds
 from shapely.geometry import mapping
 
 try:  # pragma: no cover - optional dependency

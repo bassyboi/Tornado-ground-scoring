@@ -24,24 +24,24 @@ def run_pipeline(config_path: Path) -> Dict[str, Any]:
     )
     bounds_projected = projected_geom.bounds
 
-    LOGGER.info("Fetching pre-event Sentinel-2 mosaic")
-    pre_result = fetch_s2_mosaic(
-        pipeline_config.stac.catalogs,
-        pipeline_config.pre_from,
-        pipeline_config.pre_to,
-        geographic_geom,
-        bounds_projected,
-        pipeline_config.stack_epsg,
+    pre_result = _fetch_mosaic(
+        label="pre-event",
+        catalogs=pipeline_config.stac.catalogs,
+        start=pipeline_config.pre_from,
+        end=pipeline_config.pre_to,
+        geometry_wgs84=geographic_geom,
+        bounds_projected=bounds_projected,
+        target_epsg=pipeline_config.stack_epsg,
     )
 
-    LOGGER.info("Fetching post-event Sentinel-2 mosaic")
-    post_result = fetch_s2_mosaic(
-        pipeline_config.stac.catalogs,
-        pipeline_config.post_from,
-        pipeline_config.post_to,
-        geographic_geom,
-        bounds_projected,
-        pipeline_config.stack_epsg,
+    post_result = _fetch_mosaic(
+        label="post-event",
+        catalogs=pipeline_config.stac.catalogs,
+        start=pipeline_config.post_from,
+        end=pipeline_config.post_to,
+        geometry_wgs84=geographic_geom,
+        bounds_projected=bounds_projected,
+        target_epsg=pipeline_config.stack_epsg,
     )
 
     artifacts_dir = Path("artifacts")
@@ -82,6 +82,24 @@ def run_pipeline(config_path: Path) -> Dict[str, Any]:
     for key, value in outputs.items():
         LOGGER.info("%s -> %s", key, value)
     return outputs
+
+
+def _fetch_mosaic(
+    *,
+    label: str,
+    catalogs: tuple[str, ...],
+    start,
+    end,
+    geometry_wgs84,
+    bounds_projected,
+    target_epsg: int,
+):
+    """Fetch a Sentinel-2 mosaic or surface a clear error if unreachable."""
+
+    LOGGER.info("Fetching %s Sentinel-2 mosaic", label)
+    return fetch_s2_mosaic(
+        catalogs, start, end, geometry_wgs84, bounds_projected, target_epsg
+    )
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

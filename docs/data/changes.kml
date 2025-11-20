@@ -1,6 +1,34 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>Tornado Ground-Scour (Demo)</name>
-  </Document>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
+    <Document id="1">
+        <Style id="6">
+            <LineStyle id="8">
+                <color>ff783d00</color>
+                <colorMode>normal</colorMode>
+                <width>2</width>
+            </LineStyle>
+            <PolyStyle id="7">
+                <color>7dff7800</color>
+                <colorMode>normal</colorMode>
+                <fill>1</fill>
+                <outline>1</outline>
+            </PolyStyle>
+        </Style>
+        <Placemark id="3">
+            <name>Change Polygon</name>
+            <description>{
+  &quot;area_m2&quot;: 842492.7114666161,
+  &quot;perimeter_m&quot;: 3799.279913922772,
+  &quot;mean_score&quot;: 0.9083159565925598
+}</description>
+            <styleUrl>#6</styleUrl>
+            <Polygon id="2">
+                <outerBoundaryIs>
+                    <LinearRing id="4">
+                        <coordinates>151.54520721867385,-27.945171726062934,0.0 151.54707929648353,-27.955691109182787,0.0 151.55425308072395,-27.95473242910581,0.0 151.55238033745022,-27.944213137416867,0.0 151.54520721867385,-27.945171726062934,0.0</coordinates>
+                    </LinearRing>
+                </outerBoundaryIs>
+            </Polygon>
+        </Placemark>
+    </Document>
 </kml>
