@@ -127,8 +127,7 @@ def _stack_items(
         resolution=DEFAULT_RESOLUTION,
         epsg=target_epsg,
         bounds=bounds_projected,
-        bounds_crs=f"EPSG:{target_epsg}",
-        chunks={},
+        chunksize=1024,
         fill_value=np.nan,
     )
     stack = stack.where(np.isfinite(stack))
